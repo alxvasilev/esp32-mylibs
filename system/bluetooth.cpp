@@ -1,10 +1,10 @@
-#include "esp_system.h"
-#include "esp_log.h"
+#include <esp_system.h>
+#include <esp_log.h>
 
-#include "esp_bt.h"
-#include "esp_bt_main.h"
-#include "esp_bt_device.h"
-#include "esp_a2dp_api.h"
+#include <esp_bt.h>
+#include <esp_bt_main.h>
+#include <esp_bt_device.h>
+#include <esp_a2dp_api.h>
 #include "bluetooth.hpp"
 #include <cstring>
 

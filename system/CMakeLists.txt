@@ -1,4 +1,6 @@
-idf_component_register(
-    SRCS bluetooth.cpp nvsSimple.cpp  sdcard.cpp  taskList.cpp  uart.cpp  utils.cpp \
-        utils-parse.cpp  wifi.cpp
-    INCLUDE_DIRS ".")
+set(SRCS nvsSimple.cpp  sdcard.cpp  taskList.cpp  uart.cpp  utils.cpp utils-parse.cpp  wifi.cpp)
+if (CONFIG_BT_ENABLED)
+    message(STATUS "==============bluetooth enabled")
+    set(SRCS ${SRCS} bluetooth.cpp)
+endif()
+idf_component_register(SRCS ${SRCS} REQUIRES nvs_flash esp_http_server httpLib INCLUDE_DIRS ".")
