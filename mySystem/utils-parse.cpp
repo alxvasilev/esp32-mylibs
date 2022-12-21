@@ -27,7 +27,21 @@ char* binToHex(const uint8_t* data, size_t len, char* str, char delim)
     *str = 0;
     return str;
 }
-
+bool hexToBin(const char* hex, size_t hexLen, uint8_t* bin, size_t binLen) {
+    if (hexLen != binLen * 2) {
+        return false;
+    }
+    const char* psym = hex;
+    for (int i = 0; i < binLen; i++) {
+        uint8_t hi = hexDigitVal(*(psym++));
+        uint8_t low = hexDigitVal(*(psym++));
+        if (hi > 0x0f || low > 0x0f) {
+            return false;
+        }
+        bin[i] = hi << 4 | low;
+    }
+    return true;
+}
 uint8_t hexDigitVal(char digit) {
     if (digit >= '0' && digit <= '9') {
         return digit - '0';
@@ -99,7 +113,7 @@ float strToFloat(const char* str, size_t len, float defVal)
     return (end == str + len) ? val : defVal;
 }
 
-void KeyValParser::Substring::trimSpaces()
+void Substring::trimSpaces()
 {
     auto end = str + len;
     assert(*end == 0);
@@ -177,7 +191,7 @@ bool KeyValParser::parse(char pairDelim, char keyValDelim, int flags)
     }
 }
 
-KeyValParser::Substring KeyValParser::strVal(const char* name)
+Substring KeyValParser::strVal(const char* name)
 {
     for (auto& keyval: mKeyVals) {
         if (strcmp(name, keyval.key.str) == 0) {

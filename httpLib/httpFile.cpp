@@ -183,7 +183,7 @@ bool respondWithFileContent(const std::string& fname, httpd_req_t* req)
     return true;
 }
 
-static esp_err_t httpGetHandler(const char* urlPath, httpd_req_t* req)
+esp_err_t httpGetHandler(const char* urlPath, httpd_req_t* req)
 {
     std::string fname(urlPath);
     auto pos = fname.find('?');

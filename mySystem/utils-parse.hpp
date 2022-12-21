@@ -8,6 +8,7 @@
 //#include "buffer.hpp"
 
 char* binToHex(const uint8_t* data, size_t len, char* str, char delim=' ');
+bool hexToBin(const char* hex, size_t hexLen, uint8_t* bin, size_t binLen);
 
 extern const char* _utils_hexDigits;
 template <typename T>
@@ -29,21 +30,23 @@ bool unescapeUrlParam(char* str, size_t len);
 uint8_t hexDigitVal(char digit);
 long strToInt(const char* str, size_t len, long defVal, int base=10);
 float strToFloat(const char* str, size_t len, float defVal);
+
+struct Substring
+{
+    char* str;
+    // Does not include the terminating null
+    size_t len;
+    Substring(char* aStr, size_t aLen): str(aStr), len(aLen) {}
+    Substring() {}
+    operator bool() const { return str != nullptr; }
+    void trimSpaces();
+    long toInt(long defVal, int base=10) const { return strToInt(str, len, defVal, base); }
+    float toFloat(float defVal) const { return strToFloat(str, len, defVal); }
+};
+
 class KeyValParser
 {
 public:
-    struct Substring
-    {
-        char* str;
-        // Does not include the terminating null
-        size_t len;
-        Substring(char* aStr, size_t aLen): str(aStr), len(aLen) {}
-        Substring() {}
-        operator bool() const { return str != nullptr; }
-        void trimSpaces();
-        long toInt(long defVal, int base=10) const { return strToInt(str, len, defVal, base); }
-        float toFloat(float defVal) const { return strToFloat(str, len, defVal); }
-    };
     struct KeyVal
     {
         Substring key;

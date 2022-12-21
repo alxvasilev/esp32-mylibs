@@ -2,47 +2,66 @@
 #include <esp_system.h>
 #include <esp_http_server.h>
 #include <esp_ota_ops.h>
+#include <driver/gpio.h>
+#include <esp_wifi.h> // for fixes to hanging esp_restart in myRestart()
+#include <time.h> // for led blink
 #include "ota.hpp"
-#include "utils.hpp"
+#include <algorithm>
+#ifndef  CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+#error Rollback support is not enabled - please enable it from IDF Bootloader menuconfig, \
+option CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+#endif
 
 enum { kOtaBufSize = 512 };
-static constexpr const char* TAG = "OTA";
+static const char* TAG = "OTA";
+static const char* RBK = "ROLLBACK";
 
 void defaultOtaNotifyCallback() {}
-volatile bool gOtaInProgress = false;
+bool otaInProgress = false;
 
 OtaNotifyCallback otaNotifyCallback = &defaultOtaNotifyCallback;
 struct OtaInProgressSetter
 {
     OtaInProgressSetter() {
-        gOtaInProgress = true;
+        otaInProgress = true;
     }
     ~OtaInProgressSetter() {
-        gOtaInProgress = false;
+        otaInProgress = false;
     }
 };
+void myRestart()
+{
+    esp_wifi_disconnect();
+    vTaskDelay(1);
+    esp_wifi_stop();
+    vTaskDelay(1);
+    esp_wifi_deinit();
+    vTaskDelay(1);
+    esp_restart();
+}
 
 bool rollbackIsPendingVerify()
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t otaState;
-    if (esp_ota_get_state_partition(running, &otaState) != ESP_OK) {
+    auto err = esp_ota_get_state_partition(running, &otaState);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Error %s getting active partition state", esp_err_to_name(err));
         return false;
     }
+    //ESP_LOGI(TAG, "APP is running from partition %s, state 0x%02X", running->label, otaState);
     return (otaState == ESP_OTA_IMG_PENDING_VERIFY);
 }
 
 /* Receive .Bin file */
-static esp_err_t OTA_update_post_handler(httpd_req_t *req)
+esp_err_t OTA_update_post_handler(httpd_req_t *req)
 {
-    OtaInProgressSetter inProgress;
     otaNotifyCallback();
     int contentLen = req->content_len;
-    ESP_LOGW(TAG, "OTA request received, image size: %d",contentLen);
+    ESP_LOGI(TAG, "OTA request received, image size: %d",contentLen);
     char* otaBuf = new char[kOtaBufSize]; // no need to free it, we will reboot
     const auto update_partition = esp_ota_get_next_update_partition(NULL);
     esp_ota_handle_t ota_handle;
-    ESP_LOGW(TAG, "Erasing partition...");
     esp_err_t err = esp_ota_begin(update_partition, contentLen, &ota_handle);
     if (err == ESP_ERR_OTA_ROLLBACK_INVALID_STATE) {
         ESP_LOGW(TAG, "Invalid OTA state of running app, trying to set it");
@@ -61,7 +80,8 @@ static esp_err_t OTA_update_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    ESP_LOGW(TAG, "Writing to partition '%s' subtype %d at offset 0x%x",
+    OtaInProgressSetter inProgress;
+    ESP_LOGI(TAG, "Writing to partition '%s' subtype %d at offset 0x%x",
         update_partition->label, update_partition->subtype, update_partition->address);
 
     uint64_t tsStart = esp_timer_get_time();
@@ -118,7 +138,7 @@ static esp_err_t OTA_update_post_handler(httpd_req_t *req)
     esp_timer_create_args_t args = {};
     args.dispatch_method = ESP_TIMER_TASK;
     args.callback = [](void*) {
-        esp_restart();
+        myRestart();
     };
     args.name = "rebootTimer";
     esp_timer_handle_t oneshot_timer;
@@ -127,14 +147,6 @@ static esp_err_t OTA_update_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-extern const httpd_uri_t otaUrlHandler = {
-    .uri       = "/ota",
-    .method    = HTTP_POST,
-    .handler   = OTA_update_post_handler,
-    .user_ctx  = NULL
-};
-
-static constexpr const char* RBK = "RBK";
 void rollbackConfirmAppIsWorking()
 {
     if (!rollbackIsPendingVerify()) {
@@ -168,19 +180,58 @@ bool setOtherPartitionBootableAndRestart()
     ESP_LOGW(RBK, "Could not cancel current OTA, manually switching boot partition");
     auto otherPartition = esp_ota_get_next_update_partition(NULL);
     if (!otherPartition) {
-        ESP_LOGE(RBK, "There is no second OTA partition");
+        ESP_LOGE(RBK, "...There is no second OTA partition");
         return false;
     }
     esp_ota_img_states_t state;
     auto err = esp_ota_get_state_partition(otherPartition, &state);
     if (err != ESP_OK) {
-        ESP_LOGW(RBK, "Error getting state of other partition: %s", esp_err_to_name(err));
+        ESP_LOGW(RBK, "...Error getting state of other partition: %s", esp_err_to_name(err));
     } else {
         ESP_LOGI(RBK, "Other partition has state %s", otaPartitionStateToStr(state));
     }
     ESP_ERROR_CHECK(esp_ota_set_boot_partition(otherPartition));
 
-    esp_restart();
+    myRestart();
     return true;
 }
 
+void blinkLedProgress(gpio_num_t ledPin, int durMs)
+{
+    durMs *= 1000;
+    int64_t end = esp_timer_get_time() + durMs;
+    for(;;) {
+        gpio_set_level(ledPin, 1);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        gpio_set_level(ledPin, 0);
+        int64_t remain = end - esp_timer_get_time();
+        if (remain <= 0) {
+            return;
+        }
+        int64_t delay = (remain * 200) / durMs;
+        if (delay > remain) {
+            delay = remain;
+        }
+        vTaskDelay(delay / portTICK_PERIOD_MS);
+    }
+}
+
+bool rollbackCheckUserForced(gpio_num_t rbkPin, gpio_num_t ledPin)
+{
+    if (gpio_get_level(rbkPin)) {
+        return false;
+    }
+    ESP_LOGW(RBK, "Rollback button press detected, waiting for 4 second to confirm...");
+    if (ledPin != -1) {
+        blinkLedProgress(ledPin, 4000);
+    } else {
+        vTaskDelay(4000 / portTICK_PERIOD_MS);
+    }
+    if (gpio_get_level(rbkPin)) {
+        ESP_LOGW(RBK, "Rollback not held for 4 second, rollback canceled");
+        return false;
+    }
+    ESP_LOGW(RBK, "App rollback requested by user button, rolling back and rebooting...");
+    setOtherPartitionBootableAndRestart();
+    return true;
+}

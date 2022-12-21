@@ -1,6 +1,6 @@
 #ifndef NVS_SIMPLE_HPP
 #define NVS_SIMPLE_HPP
-#include "nvs.h"
+#include <nvs.h>
 #include <esp_http_server.h>
 #include "buffer.hpp"
 #include <functional>

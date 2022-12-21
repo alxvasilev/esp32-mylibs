@@ -1,5 +1,6 @@
 #ifndef EVENT_GROUP_HPP
 #define EVENT_GROUP_HPP
+#include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 
 struct EventGroup

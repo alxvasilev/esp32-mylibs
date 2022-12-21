@@ -12,6 +12,7 @@
 #include "mutex.hpp"
 #include "timer.hpp"
 #include "utils-parse.hpp"
+#include "tostring.hpp"
 
 #define myassert(cond) if (!(cond)) { \
     ESP_LOGE("ASSERT", "Assertion failed: %s at %s:%d", #cond, __FILE__, __LINE__); \
@@ -98,6 +99,10 @@ static inline void usDelay(uint32_t us)
 static inline void msDelay(uint32_t ms)
 {
     usDelay(ms * 1000);
+}
+static inline void msSleep(int ms)
+{
+    vTaskDelay(ms / portTICK_RATE_MS);
 }
 
 template <typename T>

@@ -37,7 +37,7 @@ public:
         free();
         mPtr = newPtr;
     }
-    void* release() {
+    T* release() {
         auto ret = mPtr;
         mPtr = nullptr;
         return ret;
@@ -120,6 +120,7 @@ public:
         auto newBuf = mBuf ? (char*)realloc(mBuf, newSize) : (char*)malloc(newSize);
         if (!newBuf) {
             ESP_LOGE("BUF", "reserve: Out of memory allocating %d bytes for buffer", newSize);
+            abort();
             return;
         }
         mBuf = newBuf;
