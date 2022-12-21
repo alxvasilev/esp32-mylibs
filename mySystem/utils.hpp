@@ -100,6 +100,22 @@ static inline void msDelay(uint32_t ms)
     usDelay(ms * 1000);
 }
 
+template <typename T>
+auto appendAny(std::string& str, T&& val)
+-> decltype(str.append(std::forward<T>(val)), std::string())
+{
+    return str.append(std::forward<T>(val));
+}
+
+template <typename T>
+std::enable_if_t<std::is_integral_v<T> || std::is_floating_point_v<T>, std::string>
+appendAny(std::string& str, T val)
+{
+    char buf[32];
+    toString(buf, sizeof(buf), val);
+    return str.append(buf);
+}
+
 struct AsyncMsgBase
 {
     esp_timer_handle_t mTimer = nullptr;
