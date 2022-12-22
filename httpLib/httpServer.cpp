@@ -81,6 +81,8 @@ esp_err_t Server::start(uint16_t port, void* userCtx, int maxHandlers, size_t st
     if (mServer) {
         return ESP_ERR_INVALID_STATE;
     }
+    mPort = port;
+    mIsSsl = false;
     mUserCtx = userCtx;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
@@ -93,6 +95,14 @@ esp_err_t Server::start(uint16_t port, void* userCtx, int maxHandlers, size_t st
     }
     mTask = xTaskGetHandle("httpd");
     return err;
+}
+void Server::stop()
+{
+    if (!mServer) {
+        return;
+    }
+    httpd_stop(mServer);
+    mServer = nullptr;
 }
 
 #ifdef __EXCEPTIONS

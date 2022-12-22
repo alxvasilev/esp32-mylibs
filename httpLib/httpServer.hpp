@@ -6,14 +6,26 @@ extern const char* TAG;
 
 class wsConnection;
 class Server {
-public:
-    typedef esp_err_t (*ReqHandler)(httpd_req_t *r);
-    typedef void(*EsReqHandler)(httpd_req_t *r, void* userp);
+protected:
     httpd_handle_t mServer = nullptr;
     TaskHandle_t mTask = nullptr;
     void* mUserCtx = nullptr;
+    uint16_t mPort = 0;
+    bool mIsSsl = false;
+public:
+    typedef esp_err_t (*ReqHandler)(httpd_req_t *r);
+    typedef void(*EsReqHandler)(httpd_req_t *r, void* userp);
+    httpd_handle_t handle() const { return mServer; }
+    uint16_t port() const { return mPort; }
+    bool isSsl() const { return mIsSsl; }
     static TaskHandle_t getCurrentTask();
     esp_err_t start(uint16_t port, void* userCtx, int maxHandlers=20, size_t stackSize=4096);
+    esp_err_t startSsl(uint16_t port, const char* cert, size_t certLen, const char* privKey,
+        size_t privKeyLen, void* userCtx, int maxHandlers=20, size_t stackSize = 4096)
+    {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    void stop();
     void on(const char* url, httpd_method_t method, ReqHandler handler, void* userp);
     void on(const char* url, httpd_method_t method, ReqHandler handler)
     {
