@@ -2,6 +2,7 @@
 namespace http {
 const char* TAG = "HTTP";
 
+#ifdef HTTPD_WS_SUPPORT
 void Server::wsOn(const char* url, httpd_method_t method, wsReqHandler handler, void* userp)
 {
     if (!wsConns) {
@@ -59,6 +60,22 @@ esp_err_t Server::wsConnHandler(httpd_req_t* req)
     }
     return ctx.handler(self, &wsFrame);
 }
+void wsConnection::wsSendFrame(const char* data, size_t len)
+{
+    httpd_ws_frame_t wsPacket;
+    memset(&wsPacket, 0, sizeof(httpd_ws_frame_t));
+    wsPacket.payload = (uint8_t*)data;
+    wsPacket.len = len;
+    wsPacket.type = HTTPD_WS_TYPE_BINARY;
+    auto err = httpd_ws_send_frame_async(server.mServer, fd, &wsPacket);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "wsSend: Error %s sending packet, closing ws connection", esp_err_to_name(err));
+        httpd_sess_trigger_close(server.mServer, fd);
+    }
+}
+
+#endif
+
 esp_err_t Server::start(uint16_t port, void* userCtx, int maxHandlers, size_t stackSize)
 {
     if (mServer) {
@@ -129,17 +146,4 @@ void Server::on(const char* url, httpd_method_t method, ReqHandler handler, void
     ESP_ERROR_CHECK(httpd_register_uri_handler(mServer, &desc));
 }
 
-void wsConnection::wsSendFrame(const char* data, size_t len)
-{
-    httpd_ws_frame_t wsPacket;
-    memset(&wsPacket, 0, sizeof(httpd_ws_frame_t));
-    wsPacket.payload = (uint8_t*)data;
-    wsPacket.len = len;
-    wsPacket.type = HTTPD_WS_TYPE_BINARY;
-    auto err = httpd_ws_send_frame_async(server.mServer, fd, &wsPacket);
-    if (err != ESP_OK) {
-        ESP_LOGI(TAG, "wsSend: Error %s sending packet, closing ws connection", esp_err_to_name(err));
-        httpd_sess_trigger_close(server.mServer, fd);
-    }
-}
 }

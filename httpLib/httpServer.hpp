@@ -9,6 +9,27 @@ class Server {
 public:
     typedef esp_err_t (*ReqHandler)(httpd_req_t *r);
     typedef void(*EsReqHandler)(httpd_req_t *r, void* userp);
+    httpd_handle_t mServer = nullptr;
+    TaskHandle_t mTask = nullptr;
+    void* mUserCtx = nullptr;
+    static TaskHandle_t getCurrentTask();
+    esp_err_t start(uint16_t port, void* userCtx, int maxHandlers=20, size_t stackSize=4096);
+    void on(const char* url, httpd_method_t method, ReqHandler handler, void* userp);
+    void on(const char* url, httpd_method_t method, ReqHandler handler)
+    {
+        on(url, method, handler, mUserCtx);
+    }
+#ifdef __EXCEPTIONS
+protected:
+    static esp_err_t httpExcepWrapper(httpd_req_t* req);
+public:
+    void onEx(const char* url, httpd_method_t method, EsReqHandler handler, void* userp);
+    void onEx(const char* url, httpd_method_t method, EsReqHandler handler) {
+        onEx(url, method, handler, mUserCtx);
+    }
+#endif
+
+#ifdef HTTPD_WS_SUPPORT
     typedef esp_err_t (*wsReqHandler)(wsConnection& conn, httpd_ws_frame_t* msg);
 protected:
     struct wsHandlerCtx {
@@ -21,10 +42,6 @@ protected:
         }
     };
     friend class wsConnection;
-public:
-    httpd_handle_t mServer = nullptr;
-    TaskHandle_t mTask = nullptr;
-    void* mUserCtx = nullptr;
     std::unique_ptr<std::vector<wsConnection*>> wsConns;
     std::unique_ptr<std::vector<std::unique_ptr<wsHandlerCtx>>> wsHandlerContexts;
     void addWsConn(wsConnection* conn) { wsConns->push_back(conn); }
@@ -43,21 +60,6 @@ public:
         }
         wsHandlerContexts->emplace_back(ctx);
     }
-    esp_err_t start(uint16_t port, void* userCtx, int maxHandlers=20, size_t stackSize=4096);
-    void on(const char* url, httpd_method_t method, ReqHandler handler, void* userp);
-    void on(const char* url, httpd_method_t method, ReqHandler handler)
-    {
-        on(url, method, handler, mUserCtx);
-    }
-#ifdef __EXCEPTIONS
-protected:
-    static esp_err_t httpExcepWrapper(httpd_req_t* req);
-public:
-    void onEx(const char* url, httpd_method_t method, EsReqHandler handler, void* userp);
-    void onEx(const char* url, httpd_method_t method, EsReqHandler handler) {
-        onEx(url, method, handler, mUserCtx);
-    }
-#endif
     void wsOn(const char* url, httpd_method_t method, wsReqHandler handler, void* userp);
     void wsSyncBroadcast(const char* data, size_t len);
     template <class T>
@@ -76,7 +78,6 @@ public:
             wsAsyncBroadcast(std::forward<T>(data));
         }
     }
-    static TaskHandle_t getCurrentTask();
 protected:
     struct AsyncBcastReqBase {
         Server& server;
@@ -147,6 +148,9 @@ inline void Server::wsSyncBroadcast(const char* data, size_t len) {
         conns[i]->wsSendFrame(data, len);
     }
 }
+#else
+}; // Server class end
+#endif
 }
 static esp_err_t jsonSend(httpd_req_t* req, const char* json)
 {
