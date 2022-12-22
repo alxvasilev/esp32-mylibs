@@ -2,7 +2,7 @@
 namespace http {
 const char* TAG = "HTTP";
 
-#ifdef HTTPD_WS_SUPPORT
+#ifdef CONFIG_HTTPD_WS_SUPPORT
 void Server::wsOn(const char* url, httpd_method_t method, wsReqHandler handler, void* userp)
 {
     if (!wsConns) {
@@ -123,7 +123,9 @@ void Server::onEx(const char* url, httpd_method_t method, EsReqHandler handler, 
             .uri = url,
             .method = method,
             .handler = httpExcepWrapper,
+          #ifdef CONFIG_HTTPD_WS_SUPPORT
             .is_websocket = 0
+          #endif
         },
         .handler = handler,
         .userp = userp
@@ -141,7 +143,9 @@ void Server::on(const char* url, httpd_method_t method, ReqHandler handler, void
         .method = method,
         .handler = handler,
         .user_ctx = userp,
+      #ifdef CONFIG_HTTPD_WS_SUPPORT
         .is_websocket = 0
+      #endif
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(mServer, &desc));
 }
