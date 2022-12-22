@@ -54,7 +54,7 @@ bool rollbackIsPendingVerify()
 }
 
 /* Receive .Bin file */
-esp_err_t OTA_update_post_handler(httpd_req_t *req)
+esp_err_t otaHttpRequestHandler(httpd_req_t *req)
 {
     OtaInProgressSetter inProgress;
     otaNotifyCallback();
