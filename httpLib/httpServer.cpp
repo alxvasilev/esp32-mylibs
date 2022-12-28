@@ -159,5 +159,18 @@ void Server::on(const char* url, httpd_method_t method, ReqHandler handler, void
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(mServer, &desc));
 }
+esp_err_t sendEspError(httpd_req_t* req, httpd_err_code_t code, esp_err_t err, const char* msg, int msgLen)
+{
+    auto errName = esp_err_to_name(err);
+    if (msgLen < 0) {
+        msgLen = strlen(msg);
+    }
+    char* buf = (char*)alloca(msgLen + strlen(errName));
+    strncpy(buf, msg, msgLen);
+    strcpy(buf + msgLen, errName);
+    ESP_LOGW("HTTP", "HTTP sending error: %s", buf);
+    httpd_resp_send_err(req, code, buf);
+    return ESP_FAIL;
+}
 
 }

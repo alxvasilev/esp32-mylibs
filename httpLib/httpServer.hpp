@@ -163,7 +163,7 @@ inline void Server::wsSyncBroadcast(const char* data, size_t len) {
 #else
 }; // Server class end
 #endif
-}
+
 static esp_err_t jsonSend(httpd_req_t* req, const char* json)
 {
     ESP_ERROR_CHECK(httpd_resp_set_type(req, "text/json"));
@@ -185,7 +185,10 @@ static void jsonSendError(httpd_req_t* req, Args&&... args)
     ESP_LOGW("HTTP", "Responding with JSON error: %.*s", json.size() - sizeof(prefix) - sizeof(suffix) + 2, json.c_str() + sizeof(prefix) - 1);
     jsonSend(req,  json);
 }
-static void jsonSendOk(httpd_req_t* req)
+esp_err_t sendEspError(httpd_req_t* req, httpd_err_code_t code, esp_err_t err, const char* msg, int msgLen = -1);
+
+static inline void jsonSendOk(httpd_req_t* req)
 {
     jsonSend(req, "{\"ret\":\"ok\"}");
+}
 }

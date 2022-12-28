@@ -121,12 +121,27 @@ appendAny(std::string& str, T val)
     return str.append(buf);
 }
 
+template<typename...Args>
+const char* vtsnprintf(char* buf, int bufSize, Args&&... args)
+{
+    char* next = buf;
+    auto end = buf + bufSize;
+    ((next = next ? toString<kDontNullTerminate>(next, end - next, std::forward<Args>(args)) : nullptr), ...);
+    if (next) {
+        *next = 0;
+        return next;
+    } else {
+        *buf = 0;
+        return nullptr;
+    }
+}
+
 struct AsyncMsgBase
 {
     esp_timer_handle_t mTimer = nullptr;
-    void post()
+    void post(uint32_t usAfter=0)
     {
-        ESP_ERROR_CHECK(esp_timer_start_once(mTimer, 0));
+        ESP_ERROR_CHECK(esp_timer_start_once(mTimer, usAfter));
     }
     ~AsyncMsgBase() {
         if (mTimer) {
@@ -137,7 +152,7 @@ struct AsyncMsgBase
 };
 
 template <class Cb>
-static void asyncCall(Cb&& func)
+static void asyncCall(Cb&& func, uint32_t usAfter = 0)
 {
     struct AsyncMsg: public AsyncMsgBase {
         Cb mCallback;
@@ -152,15 +167,18 @@ static void asyncCall(Cb&& func)
         }
         static void onTimer(void* ctx) {
             auto self = static_cast<AsyncMsg*>(ctx);
+#ifdef __EXCEPTIONS
             try {
+#endif
                 self->mCallback();
-            } catch(std::exception& e) {
-            }
+#ifdef __EXCEPTIONS
+            } catch(std::exception& e) {}
+#endif
             delete self;
         }
     };
     auto msg = new AsyncMsg(std::forward<Cb>(func));
-    msg->post();
+    msg->post(usAfter);
 }
 
 class ElapsedTimer

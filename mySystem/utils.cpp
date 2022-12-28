@@ -36,7 +36,9 @@ UrlParams::UrlParams(httpd_req_t* req)
         mBuf = nullptr;
         return;
     }
-    parse('&', '=', kUrlUnescape);
+    if (!parse('&', '=', kUrlUnescape)) {
+        mKeyVals.clear();
+    }
 }
 
 int16_t utils::currentCpuFreq() {
