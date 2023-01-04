@@ -267,12 +267,14 @@ public:
             case 'i': {
                 auto sz = type + 1;
                 if (strcmp(sz, "64") == 0) {
+                    errno = 0;
                     auto val = strtoll(strVal, nullptr, 10);
                     if (!val && errno != 0) {
                         return ESP_ERR_INVALID_ARG;
                     }
                     return write(key, val);
                 }
+                errno = 0;
                 long val = strtol(strVal, nullptr, 10);
                 if (!val && errno != 0) {
                     return ESP_ERR_INVALID_ARG;
@@ -290,12 +292,14 @@ public:
             case 'u': {
                 auto sz = type + 1;
                 if (strcmp(sz, "64") == 0) {
+                    errno = 0;
                     uint64_t val = strtoull(strVal, nullptr, 10);
                     if (!val && errno != 0) {
                         return ESP_ERR_INVALID_ARG;
                     }
                     return write(key, val);
                 }
+                errno = 0;
                 unsigned long val = strtoul(strVal, nullptr, 10);
                 if (!val && errno != 0) {
                     return ESP_ERR_INVALID_ARG;
