@@ -7,44 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-template<typename T>
-struct BufPtr
-{
-protected:
-    T* mPtr;
-    BufPtr() {} // mPtr remains uninitialized, only for derived classes
-public:
-    T* ptr() { return mPtr; }
-    const T* ptr() const { return mPtr; }
-    BufPtr(T* ptr): mPtr(ptr){}
-    BufPtr(BufPtr<T>&& other) {
-        mPtr = other.mPtr;
-        other.mPtr = nullptr;
-    }
-    ~BufPtr() {
-        if (mPtr) {
-            ::free(mPtr);
-        }
-    }
-    void free() {
-        if (!mPtr) {
-            return;
-        }
-        ::free(mPtr);
-        mPtr = nullptr;
-    }
-    void freeAndReset(T* newPtr) {
-        free();
-        mPtr = newPtr;
-    }
-    T* release() {
-        auto ret = mPtr;
-        mPtr = nullptr;
-        return ret;
-    }
-    operator bool() const { return mPtr != nullptr; }
-};
-
 class DynBuffer
 {
 protected:

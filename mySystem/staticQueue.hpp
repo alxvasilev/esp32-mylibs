@@ -61,7 +61,7 @@ public:
         return true;
     }
     void clear() {
-        iterate([](T& item) { item.~T(); });
+        iterate([](T& item) { item.~T(); return true; });
         mStart = -1;
         mEnd = 0;
     }
@@ -72,14 +72,20 @@ public:
         }
         if (mStart < mEnd) {
             for (int idx = mStart; idx < mEnd; idx++) {
-                cb(items()[idx]);
+                if (!cb(items()[idx])) {
+                    return;
+                }
             }
         } else {
             for (int idx = mStart; idx < N; idx++) {
-                cb(items()[idx]);
+                if (!cb(items()[idx])) {
+                    return;
+                }
             }
             for (int idx = 0; idx < mEnd; idx++) {
-                cb(items()[idx]);
+                if (!cb(items()[idx])) {
+                    return;
+                }
             }
        }
     }

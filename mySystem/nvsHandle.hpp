@@ -76,7 +76,6 @@ public:
             return;
         }
         if ((esp_timer_get_time() - mTsLastChange) / 1000 < mAutoCommitDelayMs) {
-            ESP_LOGI(tag(), "onCommitTimer: too soon");
             return;
         }
         ESP_LOGI(tag(), "onCommitTimer: commit");

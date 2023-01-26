@@ -45,7 +45,7 @@ esp_err_t NvsSimple::init(const char* ns, bool eraseOnError)
         return err;
     }
 }
-BufPtr<char> NvsSimple::getString(const char* key)
+unique_ptr_mfree<char> NvsSimple::getString(const char* key)
 {
     size_t size = 0;
     auto err = nvs_get_str(mHandle, key, nullptr, &size);
@@ -55,7 +55,7 @@ BufPtr<char> NvsSimple::getString(const char* key)
     char* str = (char*)malloc(size); // size incudes the null terminator
     assert(str);
     err = nvs_get_str(mHandle, key, str, &size);
-    return BufPtr<char>(err == ESP_OK ? str : nullptr);
+    return unique_ptr_mfree<char>((err == ESP_OK) ? str : nullptr);
 }
 
 int32_t NvsSimple::getInt32(const char* key, int32_t defVal)
@@ -95,9 +95,9 @@ esp_err_t NvsSimple::httpDumpToJson(httpd_req_t* req)
         nvs_entry_info_t info;
         nvs_entry_info(it, &info);
         if (info.type == NVS_TYPE_STR) {
-            BufPtr<char> val(self.getString(info.key));
+            unique_ptr_mfree<char> val(self.getString(info.key));
             json += '\"';
-            json.append(info.key).append("\":\"").append(val.ptr()) += '\"';
+            json.append(info.key).append("\":\"").append(val.get()) += '\"';
         } else if (info.type == NVS_TYPE_I32) {
             json += '\"';
             json.append(info.key).append("\":");

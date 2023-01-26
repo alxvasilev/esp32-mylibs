@@ -2,7 +2,7 @@
 #define NVS_SIMPLE_HPP
 #include <nvs.h>
 #include <esp_http_server.h>
-#include "buffer.hpp"
+#include <utils.hpp>
 #include <functional>
 
 struct Substring;
@@ -21,7 +21,7 @@ public:
     nvs_handle_t handle() const { return mHandle; }
     operator nvs_handle() const { return mHandle; }
     esp_err_t init(const char* ns, bool eraseOnError);
-    BufPtr<char> getString(const char* key);
+    unique_ptr_mfree<char> getString(const char* key);
     int32_t getInt32(const char* key, int32_t defVal);
     esp_err_t setString(const char* key, const char* val);
     esp_err_t setInt32(const char* key, int32_t val);

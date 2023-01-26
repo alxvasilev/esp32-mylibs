@@ -257,3 +257,13 @@ std::string jsonStringEscape(const char* str)
     }
     return buf;
 }
+long parseInt(const char* str, long defltVal, int base)
+{
+    char* endptr;
+    errno = 0;
+    long val = strtol(str, &endptr, base);
+    if (val == 0 && (errno || (endptr == str))) {
+        return defltVal;
+    }
+    return val;
+}

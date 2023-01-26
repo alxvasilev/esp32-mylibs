@@ -113,7 +113,7 @@ auto appendAny(std::string& str, T&& val)
 }
 
 template <typename T>
-std::enable_if_t<std::is_integral_v<T> || std::is_floating_point_v<T>, std::string>
+std::enable_if_t<std::is_integral_v<T> || std::is_floating_point_v<T>, std::string&>
 appendAny(std::string& str, T val)
 {
     char buf[32];

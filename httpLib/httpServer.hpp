@@ -31,6 +31,15 @@ public:
     {
         on(url, method, handler, mUserCtx);
     }
+    template <class F>
+    void queueWork(F&& aFunc)
+    {
+        httpd_queue_work(mServer, [](void* arg) {
+            std::unique_ptr<F> func((F*)arg);
+            (*func)();
+        },
+        new F(std::forward<F>(aFunc)));
+    }
 #ifdef __EXCEPTIONS
 protected:
     static esp_err_t httpExcepWrapper(httpd_req_t* req);

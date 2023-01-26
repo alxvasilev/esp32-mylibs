@@ -178,7 +178,7 @@ public:
             }
         }
     }
-    int dataSize()
+    int dataSize() const
     {
         return mDataSize;
     }
@@ -271,6 +271,28 @@ public:
         if (ret <= 0) {
             readBuf.buf = nullptr;
         }
+    }
+    const char* peek(size_t len, char* buf, int msTimeout=-1)
+    {
+        while (mDataSize < len) {
+            if (!msTimeout) {
+                return nullptr;
+            }
+            if (waitForWriteOp(msTimeout) <= 0) {
+                return nullptr;
+            }
+        }
+        MutexLocker locker(mMutex);
+        auto contig = availableForContigRead();
+        if (contig >= len) {
+            return mReadPtr;
+        }
+        if (contig) {
+            memcpy(buf, mReadPtr, contig);
+        }
+        len -= contig;
+        memcpy(buf + contig, mBuf, len);
+        return buf;
     }
     bool write(char* buf, int size)
     {
