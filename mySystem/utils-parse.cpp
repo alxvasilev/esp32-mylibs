@@ -148,6 +148,14 @@ bool KeyValParser::parse(char pairDelim, char keyValDelim, int flags)
     char* pch = mBuf;
     for (;;) {
         auto start = pch;
+        for (;; pch++) {
+            if (pch >= end) {
+                return true; // input ends with whitespace
+            }
+            if (!::isspace(*pch)) {
+                break;
+            }
+        }
         if (flags & kKeysToLower) { //same loops, only difference is tolower() call
             for (; (pch < end) && (*pch != keyValDelim); pch++) {
                 *pch = ::tolower(*pch);
@@ -156,7 +164,7 @@ bool KeyValParser::parse(char pairDelim, char keyValDelim, int flags)
         else {
             for (; (pch < end) && (*pch != keyValDelim); pch++);
         }
-        if (pch >= end) { // unexpected end
+        if (pch >= end) { // unexpected end of key
             return false;
         }
         *pch = 0; // null-terminate the key
