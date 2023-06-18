@@ -230,8 +230,7 @@ public:
                     return err;
                 }
                 wptr[len] = '"';
-                wptr[len + 1] = 0;
-                buf.expandDataSize(len + 2);
+                buf.expandDataSize(len + 1);
             } else {
                 auto wptr = buf.getAppendPtr(len);
                 err = readString(key, wptr, len);
@@ -239,8 +238,7 @@ public:
                     *wptr = 0;
                     return err;
                 }
-                wptr[len-1] = 0;
-                buf.expandDataSize(len);
+                buf.expandDataSize(len-1);
             }
             return ESP_OK;
         }

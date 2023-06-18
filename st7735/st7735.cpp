@@ -509,7 +509,7 @@ void ST7735Display::putsCentered(const char *str, int reserveRight)
         padding = 0;
     }
     cursorX += padding;
-    puts(str, kFlagNoAutoNewline);
+    puts(str, kFlagNoAutoNewline | kFlagAllowPartial);
 }
 void ST7735Display::gotoNextChar()
 {
