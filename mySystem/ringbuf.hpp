@@ -5,11 +5,10 @@
 #include <sys/stat.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "utils.hpp"
-#include "eventGroup.hpp"
+#include "waitable.hpp"
 
 #define rbassert myassert
 
@@ -22,12 +21,9 @@ struct ReadBuf
     inline ~ReadBuf();
 };
 
-class RingBuf
+class RingBuf: public Waitable
 {
 protected:
-    enum: uint8_t { kFlagHasData = 1, kFlagIsEmpty = 2, kFlagHasEmpty = 4,
-                    kFlagWriteOp = 8, kFlagReadOp = 16, kFlagStop = 32 };
-    enum: uint8_t { kReadInProgress = 1, kWriteInProgress = 2 };
     char* mBuf;
     char* mBufEnd;
     char* mWritePtr;
@@ -36,8 +32,6 @@ protected:
     // Prevents clearing the ringbuffer while someone is using the
     // buffer returned by contigRead()
     int mDataSize;
-    EventGroup mEvents;
-    uint8_t mOpInProgress = 0;
     int bufSize() const { return mBufEnd - mBuf; }
     int availableForContigRead()
     {
@@ -45,7 +39,7 @@ protected:
             return mWritePtr - mReadPtr;
         } else if (mReadPtr > mWritePtr) { // write wrapped, read didn't
             return mBufEnd - mReadPtr;
-        } else if (mEvents.get() & kFlagHasEmpty) { // empty
+        } else if (mEvents.get() & kFlagHasSpace) { // empty
             return 0;
         } else { // full
             myassert(mEvents.get() & kFlagHasData);
@@ -77,7 +71,7 @@ protected:
             mEvents.clearBits(kFlagHasData);
             mEvents.setBits(kFlagIsEmpty);
         }
-        mEvents.setBits(kFlagReadOp|kFlagHasEmpty);
+        mEvents.setBits(kFlagReadOp|kFlagHasSpace);
     }
     void commitContigWrite(int size)
     {
@@ -92,34 +86,10 @@ protected:
         mDataSize += size;
         EventBits_t bitsToClear = kFlagIsEmpty;
         if (mWritePtr == mReadPtr) {
-            bitsToClear |= kFlagHasEmpty;
+            bitsToClear |= kFlagHasSpace;
         }
         mEvents.clearBits(bitsToClear);
         mEvents.setBits(kFlagWriteOp | kFlagHasData);
-    }
-    // -1: stopped, 0: timeout, 1: event occurred
-    int8_t waitFor(uint32_t flags, int msTimeout)
-    {
-        auto bits = mEvents.waitForOneNoReset(flags | kFlagStop, msTimeout);
-        if (bits & kFlagStop) {
-            return -1;
-        } else if (!bits) { //timeout
-            return 0;
-        }
-        assert(bits & flags);
-        return 1;
-    }
-    int8_t waitAndReset(EventBits_t flag, int msTimeout)
-    {
-        auto bits = mEvents.waitForOneAndReset(flag | kFlagStop, msTimeout);
-        if (bits & kFlagStop) {
-            return -1;
-        } else if (bits == 0) {
-            return 0;
-        } else {
-            rbassert(bits == flag);
-            return 1;
-        }
     }
     int contigWrite(char* buf, int size)
     {
@@ -138,16 +108,15 @@ protected:
         mDataSize = 0;
         mWritePtr = mReadPtr = mBuf;
         mEvents.clearBits(0xff);
-        mEvents.setBits(kFlagHasEmpty|kFlagIsEmpty|kFlagReadOp);
-        assert(mEvents.get() == (kFlagHasEmpty|kFlagIsEmpty|kFlagReadOp));
+        mEvents.setBits(kFlagHasSpace|kFlagIsEmpty|kFlagReadOp);
+        assert(mEvents.get() == (kFlagHasSpace|kFlagIsEmpty|kFlagReadOp));
     }
 public:
     // If user wants to keep some external state in sync with the ringbuffer,
     // they can use the ringbuf's mutex to protect that state
     Mutex& mutex() { return mMutex; }
     RingBuf(size_t bufSize, bool useSpiRam=false)
-        : mBuf((char*)heap_caps_malloc(bufSize, useSpiRam ? MALLOC_CAP_8BIT|MALLOC_CAP_SPIRAM : MALLOC_CAP_8BIT)),
-          mEvents(kFlagStop)
+        : mBuf((char*)heap_caps_malloc(bufSize, useSpiRam ? MALLOC_CAP_8BIT|MALLOC_CAP_SPIRAM : MALLOC_CAP_8BIT))
     {
         if (!mBuf) {
             ESP_LOGE("RINGBUF", "Out of memory allocation %zu bytes", bufSize);
@@ -361,28 +330,10 @@ public:
             mOpInProgress &= ~kReadInProgress;
         }
     }
-    void setStopSignal()
-    {
-        mEvents.setBits(kFlagStop);
-    }
-    void clearStopSignal()
-    {
-        mEvents.clearBits(kFlagStop);
-    }
     bool hasData() const
     {
         return ((mEvents.get() & kFlagHasData) != 0);
     }
-    int8_t waitForData(int msTimeout)
-    {
-        return waitFor(kFlagHasData, msTimeout);
-    }
-    bool waitForEmpty()
-    {
-        return waitFor(kFlagIsEmpty, -1) >= 0;
-    }
-    int8_t waitForWriteOp(int msTimeout) { return waitAndReset(kFlagWriteOp, msTimeout); }
-    int8_t waitForReadOp(int msTimeout) { return waitAndReset(kFlagReadOp, msTimeout); }
 };
 
 inline ReadBuf::~ReadBuf()

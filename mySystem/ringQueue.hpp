@@ -5,7 +5,7 @@
 #include <new>
 
 template <class T, int N>
-class StaticQueue {
+class RingQueue {
 protected:
     alignas(T[]) mutable char mData[sizeof(T[N])];
     T* items() const { return reinterpret_cast<T*>(mData); }
@@ -17,9 +17,9 @@ protected:
     int mEnd = 0;
 public:
     class Popper {
-        StaticQueue& mQueue;
+        RingQueue& mQueue;
     public:
-        Popper(StaticQueue& q): mQueue(q) {}
+        Popper(RingQueue& q): mQueue(q) {}
         ~Popper() { mQueue.popFront(); }
     };
     bool empty() const { return mStart < 0; }
@@ -89,7 +89,7 @@ public:
             }
        }
     }
-    ~StaticQueue() {
+    ~RingQueue() {
         clear();
     }
 };
