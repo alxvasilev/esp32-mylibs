@@ -89,6 +89,12 @@ public:
             }
        }
     }
+    int size() const {
+        if (empty()) {
+            return 0;
+        }
+        return (mStart < mEnd) ? (mEnd - mStart) : (mEnd - mStart + N);
+    }
     ~RingQueue() {
         clear();
     }
