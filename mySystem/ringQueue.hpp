@@ -22,6 +22,7 @@ public:
         Popper(RingQueue& q): mQueue(q) {}
         ~Popper() { mQueue.popFront(); }
     };
+    int capacity() const { return N; }
     bool empty() const { return mStart < 0; }
     bool full() const { return mEnd == mStart; }
     T* front() const { return empty() ? nullptr : items() + mStart; }
