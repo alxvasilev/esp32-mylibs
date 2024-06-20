@@ -87,6 +87,7 @@ esp_err_t Server::start(uint16_t port, void* userCtx, int maxHandlers, size_t st
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = port;
     config.stack_size = stackSize;
+    config.task_priority = 20;
     config.max_uri_handlers = maxHandlers;
     config.uri_match_fn = httpd_uri_match_wildcard;
     auto err = httpd_start(&mServer, &config);
