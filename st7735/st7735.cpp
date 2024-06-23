@@ -70,22 +70,22 @@ enum: uint8_t {
     ST7735_GMCTRN1 = 0xE1,
 };
 
-void ST7735Display::usDelay(uint32_t us)
+void St7735Driver::usDelay(uint32_t us)
 {
     auto end = esp_timer_get_time() + us;
     while (esp_timer_get_time() < end);
 }
 
-void ST7735Display::msDelay(uint32_t ms)
+void St7735Driver::msDelay(uint32_t ms)
 {
     usDelay(ms * 1000);
 }
 
-ST7735Display::ST7735Display(uint8_t spiHost)
+St7735Driver::St7735Driver(uint8_t spiHost)
 :SpiMaster(spiHost)
 {}
 
-void ST7735Display::init(Coord width, Coord height, const PinCfg& pins)
+void St7735Driver::init(Coord width, Coord height, const PinCfg& pins)
 {
     SpiMaster::init(pins.spi, 3);
     mWidth = width;
@@ -102,54 +102,48 @@ void ST7735Display::init(Coord width, Coord height, const PinCfg& pins)
     displayReset();
 }
 
-void ST7735Display::setRstLevel(int level)
+void St7735Driver::setRstLevel(int level)
 {
     gpio_set_level((gpio_num_t)mRstPin, level);
 }
 
-void ST7735Display::setDcPin(int level)
+void St7735Driver::setDcPin(int level)
 {
     gpio_set_level((gpio_num_t)mDcPin, level);
 }
 
-void ST7735Display::sendCmd(uint8_t opcode)
+void St7735Driver::sendCmd(uint8_t opcode)
 {
     waitDone();
     setDcPin(0);
     spiSendVal<false>(opcode);
 }
 
-void ST7735Display::prepareSendPixels()
+void St7735Driver::prepareSendPixels()
 {
     waitDone();
     setDcPin(1);
 }
 
-void ST7735Display::sendNextPixel(Color pixel)
+void St7735Driver::sendNextPixel(Color pixel)
 {
     // WARNING: Requires prepareSendPixels() to have been called before
-    spiSendVal(pixel);
+    spiSendVal(pixel.val);
 }
 
-void ST7735Display::sendCmd(uint8_t opcode, const std::initializer_list<uint8_t>& data)
+void St7735Driver::sendCmd(uint8_t opcode, const std::initializer_list<uint8_t>& data)
 {
     sendCmd(opcode);
     sendData(data);
 }
-void ST7735Display::sendData(const void* data, int size)
+void St7735Driver::sendData(const void* data, int size)
 {
     waitDone();
     setDcPin(1);
     spiSend(data, size);
 }
 
-ST7735Display::Color ST7735Display::rgb(uint8_t R, uint8_t G, uint8_t B)
-{
-  // RGB565
-    return ((R >> 3) << 11) | ((G >> 2) << 5) | (B >> 3);
-}
-
-void ST7735Display::displayReset()
+void St7735Driver::displayReset()
 {
   setRstLevel(0);
   msDelay(50);
@@ -168,13 +162,13 @@ void ST7735Display::displayReset()
   sendCmd(ST77XX_RASET, {0x00, 0x00, 0x00, 0x9F});
 
   sendCmd(ST77XX_NORON);   // 17: Normal display on, no args, w/delay
-  clear();
+  clearBlack();
   sendCmd(ST77XX_DISPON); // 18: Main screen turn on, no args, delay
   msDelay(100);
 //setOrientation(kOrientNormal);
 }
 
-void ST7735Display::setOrientation(Orientation orientation)
+void St7735Driver::setOrientation(Orientation orientation)
 {
     sendCmd(0x36); // Memory data access control:
     switch (orientation)
@@ -196,20 +190,19 @@ void ST7735Display::setOrientation(Orientation orientation)
     }
 }
 
-void ST7735Display::setWriteWindow(Coord XS, Coord YS, Coord w, Coord h)
+void St7735Driver::setWriteWindow(Coord XS, Coord YS, Coord w, Coord h)
 {
-  sendCmd(ST77XX_CASET, (uint32_t)(htobe16((uint16_t)XS) | (htobe16((uint16_t)(XS + w - 1)) << 16)));
-  sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)YS) | (htobe16((uint16_t)(YS + h - 1)) << 16)));
-  sendCmd(ST77XX_RAMWR); // Memory write
+  setWriteWindowCoords(XS, YS, XS + w - 1, YS + h - 1);
 }
-void ST7735Display::setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE)
+
+void St7735Driver::setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE)
 {
   sendCmd(ST77XX_CASET, (uint32_t)(htobe16((uint16_t)XS) | (htobe16((uint16_t)XE) << 16)));
   sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)YS) | (htobe16((uint16_t)YE) << 16)));
   sendCmd(ST77XX_RAMWR); // Memory write
 }
 
-void ST7735Display::fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
+void St7735Driver::fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
 {
     setWriteWindow(x, y, w, h);
     // TODO: If we want to support SPI bus sharing, we must lock the bus
@@ -218,7 +211,7 @@ void ST7735Display::fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
     int num = w * h * 2;
     int bufSize = std::min(num, (int)kMaxTransferLen);
     int numWords = (bufSize + 3) / 4;
-    fifoMemset(((uint32_t)color << 16) | color, numWords);
+    fifoMemset(((uint32_t)color.val << 16) | color.val, numWords);
     setDcPin(1);
     do {
         int txCount = std::min(num, bufSize);
@@ -226,308 +219,20 @@ void ST7735Display::fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
         num -= txCount;
     } while (num > 0);
 }
-
-void ST7735Display::setPixel(Coord x, Coord y, Color color)
+void St7735Driver::setPixel(Coord x, Coord y, Color color)
 {
     setWriteWindowCoords(x, y, x, y);
-    sendData(color);
+    sendData(color.val);
 }
-
-void ST7735Display::hLine(Coord x1, Coord x2, Coord y)
-{
-    fillRect(x1, y, x2 - x1 + 1, 1);
-}
-
-void ST7735Display::vLine(Coord x, Coord y1, Coord y2)
-{
-    fillRect(x, y1, 1, y2 - y1 + 1);
-}
-
-void ST7735Display::line(Coord x1, Coord y1, Coord x2, Coord y2)
-{
-    Coord dX = x2-x1;
-    Coord dY = y2-y1;
-
-    if (dX == 0) {
-        vLine(x1, y1, y2);
-        return;
-    }
-    if (dY == 0) {
-        hLine(x1, x2, y1);
-        return;
-    }
-
-    Coord dXsym = (dX > 0) ? 1 : -1;
-    Coord dYsym = (dY > 0) ? 1 : -1;
-    dX *= dXsym;
-    dY *= dYsym;
-    Coord dX2 = dX << 1;
-    Coord dY2 = dY << 1;
-    Coord di;
-
-    if (dX >= dY) {
-        di = dY2 - dX;
-        while (x1 != x2) {
-            setPixel(x1, y1, mFgColor);
-            x1 += dXsym;
-            if (di < 0) {
-                di += dY2;
-            }
-            else {
-                di += dY2 - dX2;
-                y1 += dYsym;
-            }
-        }
-    }
-    else {
-        di = dX2 - dY;
-        while (y1 != y2) {
-            setPixel(x1, y1, mFgColor);
-            y1 += dYsym;
-            if (di < 0) {
-                di += dX2;
-            }
-            else {
-                di += dX2 - dY2;
-                x1 += dXsym;
-            }
-        }
-    }
-    setPixel(x1, y1, mFgColor);
-}
-
-void ST7735Display::rect(Coord x1, Coord y1, Coord x2, Coord y2)
-{
-    hLine(x1, x2, y1);
-    hLine(x1, x2, y2);
-    vLine(x1, y1, y2);
-    vLine(x2, y1, y2);
-}
-
-void ST7735Display::blitMonoHscan(Coord sx, Coord sy, Coord w, Coord h,
-    const uint8_t* binData, int8_t bgSpacing, int scale)
-{
-    Coord bitW = w / scale;
-    setWriteWindow(sx, sy, w + bgSpacing, h);
-    prepareSendPixels();
-    const uint8_t* bits = binData;
-    for (int y = 0; y < h; y++) {
-        uint8_t mask = 0x01;
-        int rptY = 0;
-        auto lineBits = bits;
-        for (int x = 0; x < bitW; x++) {
-            auto bit = (*bits) & mask;
-            if (bit) {
-                for (int rptX = 0; rptX < scale; rptX++) {
-                    sendNextPixel(mFgColor);
-                }
-            } else {
-                for (int rptX = 0; rptX < scale; rptX++) {
-                    sendNextPixel(mBgColor);
-                }
-            }
-            mask <<= 1;
-            if (mask == 0) {
-                mask = 0x01;
-                bits++;
-            }
-        }
-        for (int i = 0; i < bgSpacing; i++) {
-            sendNextPixel(mBgColor);
-        }
-        if (++rptY < scale) {
-            bits = lineBits;
-            continue;
-        }
-        if (mask != 0x01) {
-            bits++;
-        }
-    }
-}
-
-/** @param bgSpacing Draw this number of columns with background color to the right
- */
-void ST7735Display::blitMonoVscan(Coord sx, Coord sy, Coord w, Coord h,
-    const uint8_t* binData, int8_t bgSpacing, int scale)
-{
-    Coord endX = sx + w;
-    if (endX > mWidth) {
-        w = mWidth - sx - 1;
-        if (w < 0) {
-            return;
-        }
-        bgSpacing = 0;
-    } else if (endX + bgSpacing > mWidth) {
-        bgSpacing = mWidth - endX;
-    }
-
-    // scan horizontally in display RAM, but vertically in char data
-    Coord bitH = h / scale;
-    Coord bitW = w / scale;
-    int8_t byteHeight = (bitH + 7) / 8;
-    setWriteWindow(sx, sy, bitW * scale + bgSpacing, h);
-    prepareSendPixels();
-    int rptY = 0;
-    uint8_t mask = 0x01;
-    for (int y = 0; y < h; y++) {
-        const uint8_t* bits = binData;
-        for (int x = 0; x < bitW; x++) {
-            auto color = ((*bits) & mask) ? mFgColor : mBgColor;
-            for (int rptX = 0; rptX < scale; rptX++) {
-                sendNextPixel(color);
-            }
-            bits += byteHeight;
-        }
-        for (int rptBg = 0; rptBg < bgSpacing; rptBg++) {
-            sendNextPixel(mBgColor);
-        }
-        if (++rptY < scale) {
-            continue;
-        }
-        rptY = 0;
-        mask <<= 1;
-        if (mask == 0) {
-            mask = 0x01;
-            binData++;
-        }
-    }
-}
-void ST7735Display::dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen)
+void St7735Driver::dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen)
 {
     setWriteWindow(sx, sy, w, h);
     prepareSendPixels();
     dmaSend(data, dataLen);
 }
-void ST7735Display::dmaBlit(Coord sx, Coord sy, Coord w, Coord h)
+void St7735Driver::dmaBlit(Coord sx, Coord sy, Coord w, Coord h)
 {
     setWriteWindow(sx, sy, w, h);
     prepareSendPixels();
     dmaResend(w * h * sizeof(Color));
-}
-
-bool ST7735Display::putc(uint8_t ch, uint8_t flags, uint8_t startCol)
-{
-    if (!mFont) {
-        return false;
-    }
-    if (cursorY > mHeight) {
-        return false;
-    }
-    uint8_t width = ch;
-    // returns char width via the charcode argument
-    auto charData = mFont->getCharData(width);
-    if (!charData) {
-        return false;
-    }
-    auto height = mFont->height * mFontScale;
-    int charSpc = mFont->charSpacing;
-    if (startCol) { // start drawing the char from the specified column
-        if (startCol >= width) { // column is beyond char width
-            // check if we still need to draw the spacing after that invisible char
-            // needed for easier handling of scrolling text
-            auto spacingToDraw = width + charSpc - startCol;
-            if (spacingToDraw > charSpc) {
-                return false;
-            }
-            spacingToDraw *= mFontScale; // but column is within char spacing
-            if (cursorX + spacingToDraw > mWidth) {
-                spacingToDraw = mWidth - cursorX;
-                if (spacingToDraw <= 0) {
-                    return false;
-                }
-            }
-            clear(cursorX, cursorY, spacingToDraw, height);
-            cursorX += spacingToDraw;
-            return true;
-        }
-        auto byteHeight = (mFont->height + 7) / 8;
-        charData += byteHeight * startCol; // skip first columns
-        width -= startCol;
-    }
-    width *= mFontScale;
-    charSpc *= mFontScale;
-
-    // we need to calculate new cursor X in order to determine if we
-    // should increment cursorY. That's why we do the newCursorX gymnastics
-    Coord newCursorX = cursorX + width + charSpc;
-    if (newCursorX > mWidth) {
-        if (cursorX < mWidth && (flags & kFlagAllowPartial)) {
-            newCursorX = mWidth;
-        } else {
-            if (flags & kFlagNoAutoNewline) {
-                return false;
-            }
-            cursorX = 0;
-            cursorY += height + mFont->lineSpacing * mFontScale;
-            newCursorX = width + charSpc;
-        }
-    }
-    if (mFont->isVertScan) {
-        blitMonoVscan(cursorX, cursorY, width, height, charData, charSpc, mFontScale);
-    } else {
-        blitMonoHscan(cursorX, cursorY, width, height, charData, charSpc, mFontScale);
-    }
-    cursorX = newCursorX;
-    return true;
-}
-
-void ST7735Display::puts(const char* str, uint8_t flags)
-{
-    char ch;
-    while((ch = *(str++))) {
-        if (ch == '\n') {
-            newLine();
-        } else if (ch != '\r') {
-            putc(ch, flags);
-        }
-    }
-}
-void ST7735Display::newLine()
-{
-    cursorX = 0;
-    cursorY += (mFont->height + mFont->lineSpacing) * mFontScale;
-}
-void ST7735Display::nputs(const char* str, int len, uint8_t flags)
-{
-    auto end = str + len;
-    while(str < end) {
-        char ch = *(str++);
-        if (!ch) {
-            return;
-        }
-        if (ch == '\n') {
-            newLine();
-        } else if (ch != '\r') {
-            putc(ch, flags);
-        }
-    }
-}
-int ST7735Display::textWidth(const char *str)
-{
-    if (mFont->isMono()) {
-        return (mFont->width + mFont->charSpacing) * mFontScale * strlen(str);
-    } else {
-        int w = 0;
-        for (const char* p = str; *p; p++) {
-            w += mFontScale * mFont->charWidth(*p);
-        }
-        return w;
-    }
-}
-void ST7735Display::putsCentered(const char *str, int reserveRight)
-{
-    int padding = (mWidth - cursorX - reserveRight - textWidth(str)) / 2;
-    if (padding < 0) {
-        padding = 0;
-    }
-    cursorX += padding;
-    puts(str, kFlagNoAutoNewline | kFlagAllowPartial);
-}
-void ST7735Display::gotoNextChar()
-{
-    cursorX += mFont->width * mFontScale + mFont->charSpacing;
-}
-void ST7735Display::gotoNextLine()
-{
-    cursorY += mFont->height * mFontScale + mFont->lineSpacing;
 }
