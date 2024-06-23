@@ -392,6 +392,18 @@ void ST7735Display::blitMonoVscan(Coord sx, Coord sy, Coord w, Coord h,
         }
     }
 }
+void ST7735Display::dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen)
+{
+    setWriteWindow(sx, sy, w, h);
+    prepareSendPixels();
+    dmaSend(data, dataLen);
+}
+void ST7735Display::dmaBlit(Coord sx, Coord sy, Coord w, Coord h)
+{
+    setWriteWindow(sx, sy, w, h);
+    prepareSendPixels();
+    dmaResend(w * h * sizeof(Color));
+}
 
 bool ST7735Display::putc(uint8_t ch, uint8_t flags, uint8_t startCol)
 {

@@ -99,6 +99,8 @@ public:
     void vLine(Coord x, Coord y1, Coord y2);
     void rect(Coord x1, Coord y1, Coord x2, Coord y2);
     void line(Coord x1, Coord y1, Coord x2, Coord y2);
+    void dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen);
+    void dmaBlit(Coord sx, Coord sy, Coord w, Coord h);
     void blitMonoHscan(Coord sx, Coord sy, Coord w, Coord h, const uint8_t* binData, int8_t bgSpacing=0, int scale=1);
     void blitMonoVscan(Coord sx, Coord sy, Coord w, Coord h, const uint8_t* binData, int8_t bgSpacing=0, int scale=1);
     void setFont(const Font& font, int8_t scale=1) { mFont = &font; mFontScale = scale; }

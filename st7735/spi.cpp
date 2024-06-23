@@ -6,6 +6,14 @@
 #include <driver/spi_common_internal.h>
 #include <soc/dport_reg.h>
 #include <algorithm>
+
+#define TAG "myspi"
+#ifdef MYSPI_DEBUG
+    #define SPI_LOGD(fmt,...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#else
+    #define SPI_LOGD(...)
+#endif
+
 SpiMaster::SpiMaster(uint8_t spiHost)
 :mSpiHost(spiHost), mReg(*(volatile spi_dev_t *)(DR_REG_SPI3_BASE))//, mReg(*(volatile spi_dev_t*)(REG_SPI_BASE(spiHost)))
 {
@@ -162,4 +170,116 @@ void SpiMaster::spiSend(const void* data, int size)
         size -= count;
         fifoSend(count);
     }
+}
+
+bool SpiMaster::dmaEnable(int dmaChan, bool burstMode)
+{
+    assert(dmaChan == 1 || dmaChan == 2);
+    if (mDmaChan > -1) {
+        return true;
+    }
+    waitDone();
+    /*
+    // TODO: Check if DMA channel is un use by IDF, register it
+      bool ok = spicommon_dma_chan_claim(dmaChan);
+      if(!ok) {
+          return false;
+    }
+    */
+    // start the DMA peripheral
+    DPORT_SET_PERI_REG_MASK(DPORT_PERIP_CLK_EN_REG, DPORT_SPI_DMA_CLK_EN);
+    DPORT_SET_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG, DPORT_SPI_DMA_RST);
+    DPORT_CLEAR_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG, DPORT_SPI_DMA_RST);
+    mDmaChan = dmaChan;
+    // select the dma channel for our SPI host
+    DPORT_SET_PERI_REG_BITS(DPORT_SPI_DMA_CHAN_SEL_REG, 3, dmaChan, (mSpiHost * 2));
+    // reset DMA
+    mReg.dma_conf.val = SPI_OUT_RST|SPI_IN_RST|SPI_AHBM_RST|SPI_AHBM_FIFO_RST;
+    mReg.dma_out_link.val = 0;
+    mReg.dma_in_link.val = 0;
+    mReg.dma_conf.val = 0;
+    mReg.dma_conf.out_eof_mode = 1;
+    mReg.dma_conf.indscr_burst_en = 1;
+    mReg.dma_conf.outdscr_burst_en = 1;
+    if (burstMode) {
+        mReg.dma_conf.out_data_burst_en = 1;
+    }
+    return true;
+}
+void SpiMaster::dmaMountBuffer(const char* buf, int len)
+{
+    if (mDmaChan < 0) {
+        ESP_LOGE(TAG, "dmaSend: DMA not enabled");
+        for (;;);
+    }
+    enum { kMaxDmaBufSize = 4092 };
+    waitDone();
+    int numDescs = (len + kMaxDmaBufSize - 1) / kMaxDmaBufSize;
+    mDmaDescs.reset((DmaBufDesc*)heap_caps_malloc(numDescs * sizeof(DmaBufDesc), MALLOC_CAP_DMA));
+    mDmaDataLen = len;
+    auto end = mDmaDescs.get() + numDescs;
+    for (auto desc = mDmaDescs.get(); desc < end; desc++) {
+        assert(((uint32_t)desc & 0x03) == 0);
+        int dlen = std::min(len, (int)kMaxDmaBufSize);
+        len -= dlen;
+        desc->dw0 = 0;
+        desc->size = dlen;
+        desc->length = dlen;
+        desc->owner = 1;
+        assert(((uint32_t)buf & 0x03) == 0);
+        desc->buf = (uint32_t)buf;
+        buf += dlen;
+        if (len <= 0) {
+            desc->eof = 1;
+            desc->next = 0;
+        }
+        else {
+            desc->next = (uint32_t)(desc + 1);
+        }
+        SPI_LOGD("desc %p: len=%d, buf=%p(%04x %04x), next=%p",
+            desc, dlen, (void*)desc->buf, *((uint16_t*)desc->buf), *(((uint16_t*)desc->buf)+1),
+            (void*)desc->next);
+    }
+}
+void SpiMaster::dmaUnmountBuffer()
+{
+    waitDone();
+    mReg.dma_out_link.val = 0;
+    mDmaDescs.reset();
+    mDmaDataLen = -1;
+}
+void SpiMaster::dmaSend(const char* buf, int len)
+{
+    dmaMountBuffer(buf, len);
+    dmaResend();
+}
+void SpiMaster::dmaResend(int len)
+{
+    if (!mDmaDescs.get()) {
+        ESP_LOGE(TAG, "dmaResend: No DMA buffers allocated");
+        abort();
+    }
+    if (len < 0) {
+        len = mDmaDataLen;
+    }
+    else {
+        assert(len <= mDmaDataLen);
+    }
+    /*
+    // In the IDF sources the following 2 lines appear to be some sort of workaround for v0/v1 hw bug,
+    // but seems we don't need it
+    mReg.dma_in_link.val = 0;
+    mReg.miso_dlen.usr_miso_dbitlen = 0;
+    mReg.dma_in_link.start = 1;
+    */
+    mReg.dma_out_link.val = 0;
+    mReg.dma_out_link.addr = (uint32_t)mDmaDescs.get() & 0xFFFFF;
+    mReg.dma_out_link.start = 1;
+    mReg.mosi_dlen.usr_mosi_dbitlen = len * 8 - 1; // must be after dma_out_link setup - otherwise DMA will send some zeroes before the data
+    startTransaction();
+}
+void SpiMaster::dmaLogState()
+{
+    ESP_LOGI(TAG, "currBuf: %p, eofBuf: %p, busy=%d",
+        (void*)mReg.dma_outlink_dscr, (void*)mReg.dma_out_eof_des_addr, mReg.cmd.usr);
 }
