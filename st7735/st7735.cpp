@@ -190,15 +190,15 @@ void St7735Driver::setOrientation(Orientation orientation)
     }
 }
 
-void St7735Driver::setWriteWindow(Coord XS, Coord YS, Coord w, Coord h)
+void St7735Driver::setWriteWindow(Coord x, Coord y, Coord w, Coord h)
 {
-  setWriteWindowCoords(XS, YS, XS + w - 1, YS + h - 1);
+  setWriteWindowCoords(x, y, x + w - 1, y + h - 1);
 }
 
-void St7735Driver::setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE)
+void St7735Driver::setWriteWindowCoords(Coord x1, Coord y1, Coord x2, Coord y2)
 {
-  sendCmd(ST77XX_CASET, (uint32_t)(htobe16((uint16_t)XS) | (htobe16((uint16_t)XE) << 16)));
-  sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)YS) | (htobe16((uint16_t)YE) << 16)));
+  sendCmd(ST77XX_CASET, (uint32_t)(htobe16((uint16_t)x1) | (htobe16((uint16_t)x2) << 16)));
+  sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)y1) | (htobe16((uint16_t)y2) << 16)));
   sendCmd(ST77XX_RAMWR); // Memory write
 }
 
@@ -224,15 +224,15 @@ void St7735Driver::setPixel(Coord x, Coord y, Color color)
     setWriteWindowCoords(x, y, x, y);
     sendData(color.val);
 }
-void St7735Driver::dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen)
+void St7735Driver::dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data, int dataLen)
 {
-    setWriteWindow(sx, sy, w, h);
+    setWriteWindow(x, y, w, h);
     prepareSendPixels();
     dmaSend(data, dataLen);
 }
-void St7735Driver::dmaBlit(Coord sx, Coord sy, Coord w, Coord h)
+void St7735Driver::dmaBlit(Coord x, Coord y, Coord w, Coord h)
 {
-    setWriteWindow(sx, sy, w, h);
+    setWriteWindow(x, y, w, h);
     prepareSendPixels();
     dmaResend(w * h * sizeof(Color));
 }

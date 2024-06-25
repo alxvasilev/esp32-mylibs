@@ -6,6 +6,7 @@
 
 struct Color565be // big-endian, as usually used by display controllers
 {
+    // green(lsb).3 blue.5 red.5 green(msb).3
     uint16_t val;
     Color565be(uint16_t aVal=0): val(aVal) {}
     Color565be(uint8_t r, uint8_t g, uint8_t b) { rgb(r, g, b); }
@@ -13,12 +14,10 @@ struct Color565be // big-endian, as usually used by display controllers
     {
         val = htobe16(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
     }
-    /*
-    TODO: Fix these for big-endian
-    uint8_t blue() const { return val >> 11; }
-    uint8_t green() const { return (val >> 5) & 0x3f; }
-    uint8_t red() const { return val & 0x1f; }
-    */
+    // TODO: Verify these are correct
+    uint8_t blue() const { return (val >> 8) & 0x1f; }
+    uint8_t green() const { return ((val << 3) & 0x38) | ((val >> 13) & 0x07); }
+    uint8_t red() const { return (val >> 3) & 0x1f; }
     // Some ready-made 16-bit ('565') color settings:
     enum: uint16_t {
         BLACK = 0x0000,

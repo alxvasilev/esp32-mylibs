@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include "spi.hpp"
 #include "lcdColor.hpp"
+#include "framebuf.hpp"
 
 class St7735Driver: public SpiMaster
 {
@@ -58,6 +59,8 @@ protected:
         setDcPin(1);
         spiSendVal(data);
     }
+    void setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE);
+    void clearBlack() { fillRect(0, 0, mWidth, mHeight, 0); }
 public:
     Coord width() const { return mWidth; }
     Coord height() const { return mHeight; }
@@ -66,13 +69,20 @@ public:
     void prepareSendPixels();
     void sendNextPixel(Color pixel);
     void setOrientation(Orientation orientation);
-    void setWriteWindow(Coord XS, Coord YS, Coord w, Coord h);
-    void setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE);
-    void fillRect(Coord x, Coord y, Coord w, Coord h, Color color);
-    void clearBlack() { fillRect(0, 0, mWidth, mHeight, 0); }
     void setPixel(Coord x, Coord y, Color color);
-    void dmaBlit(Coord sx, Coord sy, Coord w, Coord h, const char* data, int dataLen);
-    void dmaBlit(Coord sx, Coord sy, Coord w, Coord h);
+    void setWriteWindow(Coord x, Coord y, Coord w, Coord h);
+    void fillRect(Coord x, Coord y, Coord w, Coord h, Color color);
+    void dmaMountFrameBuffer(const FrameBuffer<Color>& fb) {
+        dmaMountBuffer((const char*)fb.data(), fb.byteSize());
+    }
+    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data, int dataLen);
+    void dmaBlit(Coord x, Coord y, const FrameBuffer<Color>& fb) {
+        dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.data(), fb.byteSize());
+    }
+    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const FrameBuffer<Color>& fb) {
+        dmaBlit(x, y, w, h, (const char*)fb.data(), fb.byteSize());
+    }
+    void dmaBlit(Coord x, Coord y, Coord w, Coord h);
 };
 
 #include "gfx.hpp"

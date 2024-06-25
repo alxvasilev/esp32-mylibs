@@ -41,7 +41,8 @@ void setFgColor(Color color) { mFgColor = color; }
 void setFgColor(uint8_t r, uint8_t g, uint8_t b) { mFgColor = Color(r, g, b); }
 void setBgColor(Color color) { mBgColor = color; }
 void setBgColor(uint8_t r, uint8_t g, uint8_t b) { mBgColor = Color(r, g, b); }
-void fillRect(Coord x, Coord y, Coord w, Coord h) { Display::fillRect(x, y, w, h, mBgColor); }
+using Display::fillRect;
+void fillRect(Coord x, Coord y, Coord w, Coord h) { Display::fillRect(x, y, w, h, mFgColor); }
 void gotoXY(Coord x, Coord y) { cursorX = x; cursorY = y; }
 void clear() { Display::fillRect(0, 0, Display::width(), Display::height(), mBgColor); }
 void clear(Coord x, Coord y, Coord w, Coord h) { Display::fillRect(x, y, w, h, mBgColor); }
@@ -78,7 +79,7 @@ void line(Coord x1, Coord y1, Coord x2, Coord y2)
     if (dX >= dY) {
         di = dY2 - dX;
         while (x1 != x2) {
-            setPixel(x1, y1, mFgColor);
+            Display::setPixel(x1, y1, mFgColor);
             x1 += dXsym;
             if (di < 0) {
                 di += dY2;
@@ -92,7 +93,7 @@ void line(Coord x1, Coord y1, Coord x2, Coord y2)
     else {
         di = dX2 - dY;
         while (y1 != y2) {
-            setPixel(x1, y1, mFgColor);
+            Display::setPixel(x1, y1, mFgColor);
             y1 += dYsym;
             if (di < 0) {
                 di += dX2;
@@ -103,7 +104,7 @@ void line(Coord x1, Coord y1, Coord x2, Coord y2)
             }
         }
     }
-    setPixel(x1, y1, mFgColor);
+    Display::setPixel(x1, y1, mFgColor);
 }
 void rect(Coord x1, Coord y1, Coord x2, Coord y2)
 {
