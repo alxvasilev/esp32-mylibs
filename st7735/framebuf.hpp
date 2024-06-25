@@ -2,9 +2,10 @@
 #define __FRAMEBUF_HPP
 #include "esp_heap_caps.h"
 #include <memory>
+#define FRAMEBUF_DEBUG 1
 #if FRAMEBUF_DEBUG
     #define fbassert(cond) if (!(cond)) { printf("Framebuf: assert(%s) failed\n", #cond); abort(); }
-//  #define FRAMEBUF_LOG(fmt,...) ESP_LOGI("FB", fmt, ##__VA_ARGS__)
+    #define FRAMEBUF_LOG(fmt,...) ESP_LOGI("FB", fmt, ##__VA_ARGS__)
 #else
     #define fbassert(cond)
     #define FRAMEBUF_LOG(fmt,...)
@@ -83,6 +84,11 @@ public:
     }
     void fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
     {
+        FRAMEBUF_LOG("fillRect: x=%d, y=%d, w=%d, h=%d, mWidth=%d, mHeight=%d", x, y, w, h, mWidth, mHeight);
+        fbassert(x >= 0 && x <= mWidth);
+        fbassert(y >= 0 && y <= mHeight);
+        fbassert(x + w <= mWidth);
+        fbassert(y + h <= mHeight);
         int lineSkip = mWidth - w;
         Color* pixPtr = mBuf.get() + y * mWidth + x;
         for (int line = 0; line < h; line++) {
