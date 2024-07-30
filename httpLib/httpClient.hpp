@@ -4,6 +4,7 @@
 #include <esp_http_client.h>
 #include <buffer.hpp>
 #include <utility>
+
 class HttpClient {
 protected:
     uint16_t mBufSize = 1024;
