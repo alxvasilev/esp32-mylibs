@@ -44,6 +44,7 @@ protected:
     { return (volatile uint32_t*)((uint8_t*)(&mReg) + 0x80); }
     void configPins(const SpiPinCfg& pins);
 public:
+    enum { kDmaMaxBufSize = 4092 };
     SpiMaster(uint8_t spiHost);
     void init(const SpiPinCfg& pins, int freqDiv);
     template <bool Wait=true, typename T>
@@ -61,6 +62,7 @@ public:
         spiSend(data.begin(), (int)data.size());
     }
     void startTransaction() { mReg.cmd.usr = 1; }
+    bool busy() const { return mReg.cmd.usr != 0; }
     void waitDone() const { while(mReg.cmd.usr); }
     void fifoMemset(uint32_t val, int nWords=16);
     void fifoSend(int len) {
@@ -76,5 +78,6 @@ public:
     void dmaSend(const char* buf, int len); // = dmaMountBuffer + dmaSend
     void dmaUnmountBuffer();
     void dmaLogState();
+    void dmaLogTransaction();
 };
 #endif

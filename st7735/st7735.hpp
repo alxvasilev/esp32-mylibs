@@ -75,12 +75,13 @@ public:
     void dmaMountFrameBuffer(const FrameBuffer<Color>& fb) {
         dmaMountBuffer((const char*)fb.data(), fb.byteSize());
     }
-    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data, int dataLen);
+    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data);
     void dmaBlit(Coord x, Coord y, const FrameBuffer<Color>& fb) {
-        dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.data(), fb.byteSize());
+        dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.data());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h, const FrameBuffer<Color>& fb) {
-        dmaBlit(x, y, w, h, (const char*)fb.data(), fb.byteSize());
+        fbassert(w * h * sizeof(Color) <= fb.byteSize());
+        dmaBlit(x, y, w, h, (const char*)fb.data());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h);
 };

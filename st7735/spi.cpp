@@ -6,6 +6,7 @@
 #include <driver/spi_common_internal.h>
 #include <soc/dport_reg.h>
 #include <algorithm>
+#include <vector>
 
 #define TAG "myspi"
 #ifdef MYSPI_DEBUG
@@ -212,15 +213,14 @@ void SpiMaster::dmaMountBuffer(const char* buf, int len)
         ESP_LOGE(TAG, "dmaSend: DMA not enabled");
         for (;;);
     }
-    enum { kMaxDmaBufSize = 4092 };
     waitDone();
-    int numDescs = (len + kMaxDmaBufSize - 1) / kMaxDmaBufSize;
+    int numDescs = (len + kDmaMaxBufSize - 1) / kDmaMaxBufSize;
     mDmaDescs.reset((DmaBufDesc*)heap_caps_malloc(numDescs * sizeof(DmaBufDesc), MALLOC_CAP_DMA));
     mDmaDataLen = len;
     auto end = mDmaDescs.get() + numDescs;
     for (auto desc = mDmaDescs.get(); desc < end; desc++) {
         assert(((uint32_t)desc & 0x03) == 0);
-        int dlen = std::min(len, (int)kMaxDmaBufSize);
+        int dlen = std::min(len, (int)kDmaMaxBufSize);
         len -= dlen;
         desc->dw0 = 0;
         desc->size = dlen;
@@ -265,13 +265,11 @@ void SpiMaster::dmaResend(int len)
     else {
         assert(len <= mDmaDataLen);
     }
-    /*
-    // In the IDF sources the following 2 lines appear to be some sort of workaround for v0/v1 hw bug,
-    // but seems we don't need it
-    mReg.dma_in_link.val = 0;
-    mReg.miso_dlen.usr_miso_dbitlen = 0;
-    mReg.dma_in_link.start = 1;
-    */
+    // Need to reset it if the previous send finished after sending mosi_dbitlen bits, but
+    // before reaching the EOF DMA descriptor - otherwise, the new send doesn't start from the first byte
+    mReg.dma_conf.val |= SPI_OUT_RST;
+    mReg.dma_conf.val &= ~(SPI_OUT_RST);
+
     mReg.dma_out_link.val = 0;
     mReg.dma_out_link.addr = (uint32_t)mDmaDescs.get() & 0xFFFFF;
     mReg.dma_out_link.start = 1;
@@ -280,6 +278,24 @@ void SpiMaster::dmaResend(int len)
 }
 void SpiMaster::dmaLogState()
 {
-    ESP_LOGI(TAG, "currBuf: %p, eofBuf: %p, busy=%d",
+    ESP_LOGI(TAG, "dma: currDesc=%p, eofDesc=%p, busy=%d",
         (void*)mReg.dma_outlink_dscr, (void*)mReg.dma_out_eof_des_addr, mReg.cmd.usr);
+}
+void SpiMaster::dmaLogTransaction()
+{
+    std::vector<uint32_t> bufs;
+    bufs.reserve(mDmaDataLen / kDmaMaxBufSize + 2);
+    uint32_t last = 0;
+    while(mReg.cmd.usr) {
+        uint32_t curr = mReg.dma_outlink_dscr;
+        if (last != curr) {
+            bufs.push_back(curr);
+            last = curr;
+        }
+    }
+    ESP_LOGI(TAG, "dma transaction capture:");
+    for (auto buf: bufs) {
+        ESP_LOGI(TAG, "\t desc=%p", (void*)buf);
+    }
+    ESP_LOGI(TAG, "dma:\t eofDesc=%p", (void*)mReg.dma_out_eof_des_addr);
 }

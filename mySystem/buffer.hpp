@@ -16,6 +16,8 @@ protected:
 public:
     char* buf() { return mBuf; }
     const char* buf() const { return mBuf; }
+    char* data() { return mBuf; }
+    const char* data() const { return mBuf; }
     int capacity() const { return mBufSize; }
     int dataSize() const { return mDataSize; }
     bool isEmpty() const { return mDataSize <= 0; }

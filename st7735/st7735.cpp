@@ -224,11 +224,11 @@ void St7735Driver::setPixel(Coord x, Coord y, Color color)
     setWriteWindowCoords(x, y, x, y);
     sendData(color.val);
 }
-void St7735Driver::dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data, int dataLen)
+void St7735Driver::dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data)
 {
     setWriteWindow(x, y, w, h);
     prepareSendPixels();
-    dmaSend(data, dataLen);
+    dmaSend(data, w * h * sizeof(Color));
 }
 void St7735Driver::dmaBlit(Coord x, Coord y, Coord w, Coord h)
 {

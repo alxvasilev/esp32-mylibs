@@ -2,7 +2,7 @@
 #define __FRAMEBUF_HPP
 #include "esp_heap_caps.h"
 #include <memory>
-#define FRAMEBUF_DEBUG 1
+//#define FRAMEBUF_DEBUG 1
 #if FRAMEBUF_DEBUG
     #define fbassert(cond) if (!(cond)) { printf("Framebuf: assert(%s) failed\n", #cond); abort(); }
     #define FRAMEBUF_LOG(fmt,...) ESP_LOGI("FB", fmt, ##__VA_ARGS__)
