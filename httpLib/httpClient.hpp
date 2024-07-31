@@ -42,7 +42,7 @@ public:
     }
     static esp_err_t headerHandler(esp_http_client_event_t *evt){ return ESP_OK; }
 protected:
-    void create(const char* url, int method)
+    void create(const char* url, esp_http_client_method_t method)
     {
         assert(!mClient);
         assert(!mConnected);
@@ -52,7 +52,7 @@ protected:
         cfg.user_data = this;
         cfg.timeout_ms = mRxTimeout;
         cfg.buffer_size = mBufSize;
-        cfg.method = (esp_http_client_method_t)method;
+        cfg.method = method;
 
         mClient = esp_http_client_init(&cfg);
         if (!mClient) {
@@ -70,7 +70,7 @@ public:
         }
         mConnected = false;
     }
-    int request(const char* url, int method, const Headers* headers=nullptr, const char* postData=nullptr, int postDataLen=0)
+    int request(const char* url, esp_http_client_method_t method, const Headers* headers=nullptr, const char* postData=nullptr, int postDataLen=0)
     {
         create(url, method);
         for (;;) {
@@ -213,7 +213,7 @@ public:
                     throw Exception("Connection closed while receiving response");
                 }
                 resp.resize(recvd);
-                return resp;
+                return maybeNullTerminate(resp);
             }
             else if (nrx == -ESP_ERR_HTTP_EAGAIN) { //EAGAIN
                 checkTerminate();
@@ -224,22 +224,22 @@ public:
             }
             recvd += nrx;
             if (recvd == clen) {
-                return resp;
+                return maybeNullTerminate(resp);
             }
         }
     }
+    static DynBuffer& maybeNullTerminate(DynBuffer& buf) { buf.nullTerminate(); return buf; }
+    template<class T> static T& maybeNullTerminate(T& buf) { return buf; }
     template<class T=DynBuffer>
     T get(const char* url)
     {
-        throwIfFail(request(url, HTTP_METHOD_POST), kRequestErr);
-        auto response = getResponse<T>();
-        response.nullTerminate();
-        return response;
+        throwIfFail(request(url, HTTP_METHOD_GET), kRequestErr);
+        return getResponse<T>();
     }
     template<class T=DynBuffer>
     T get(const char* url, const Headers& headers)
     {
-        throwIfFail(request(url, HTTP_METHOD_POST, &headers), kRequestErr);
+        throwIfFail(request(url, HTTP_METHOD_GET, &headers), kRequestErr);
         return getResponse<T>();
     }
     template<class T=DynBuffer>
