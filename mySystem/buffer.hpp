@@ -48,9 +48,12 @@ public:
         memcpy(mBuf, data, size);
         mBufSize = mDataSize = size;
     }
-    DynBuffer(DynBuffer& other)
+    DynBuffer(const DynBuffer& other) = delete;
+    DynBuffer(DynBuffer&& other)
+    : mBuf(other.mBuf), mBufSize(other.mBufSize), mDataSize(other.mDataSize)
     {
-        moveFrom(other);
+        other.mBuf = nullptr;
+        other.mBufSize = other.mDataSize = 0;
     }
     ~DynBuffer() { if (mBuf) ::free(mBuf); }
     void clear() { mDataSize = 0; }

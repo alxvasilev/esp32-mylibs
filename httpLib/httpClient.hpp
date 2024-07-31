@@ -213,7 +213,7 @@ public:
                     throw Exception("Connection closed while receiving response");
                 }
                 resp.resize(recvd);
-                return maybeNullTerminate(resp);
+                return maybeNullTerminate(std::move(resp));
             }
             else if (nrx == -ESP_ERR_HTTP_EAGAIN) { //EAGAIN
                 checkTerminate();
@@ -224,12 +224,15 @@ public:
             }
             recvd += nrx;
             if (recvd == clen) {
-                return maybeNullTerminate(resp);
+                return std::move(maybeNullTerminate(std::move(resp)));
             }
         }
     }
-    static DynBuffer& maybeNullTerminate(DynBuffer& buf) { buf.nullTerminate(); return buf; }
-    template<class T> static T& maybeNullTerminate(T& buf) { return buf; }
+    static DynBuffer&& maybeNullTerminate(DynBuffer&& buf) {
+        buf.nullTerminate();
+        return std::move(buf);
+    }
+    template<class T> static T&& maybeNullTerminate(T&& buf) { return std::move(buf); }
     template<class T=DynBuffer>
     T get(const char* url)
     {
