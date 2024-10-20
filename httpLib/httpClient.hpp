@@ -18,7 +18,7 @@ public:
     static constexpr const char* kDefaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36";
     static constexpr const char* kRequestErr = "Connect or request error";
     enum RetCode: int8_t { kRetError = -1, kRetAgain = 0, kRetOk = 1};
-    enum { kMaxMemResponseLen = 1024 };
+    enum { kConnectTimeout = 4000, kMaxMemResponseLen = 1024 };
     class Exception: public std::runtime_error {
         using runtime_error::runtime_error;
     };
@@ -50,7 +50,7 @@ protected:
         cfg.url = url;
         cfg.event_handler = headerHandler;
         cfg.user_data = this;
-        cfg.timeout_ms = mRxTimeout;
+        cfg.timeout_ms = kConnectTimeout;
         cfg.buffer_size = mBufSize;
         cfg.method = method;
 
@@ -74,16 +74,18 @@ public:
     {
         create(url, method);
         for (;;) {
-            int ret = esp_http_client_open(mClient, postDataLen);
-            if (ret != ESP_OK) {
-                close();
-                return ret;
-            }
             if (headers) {
                 for (auto& hdr: *headers) {
                     esp_http_client_set_header(mClient, hdr.first, hdr.second);
                 }
             }
+            int ret = esp_http_client_open(mClient, postDataLen);
+            if (ret != ESP_OK) {
+                ESP_LOGW("http", "esp_http_client_open failed with %s", esp_err_to_name(ret));
+                close();
+                return ret;
+            }
+            esp_http_client_set_timeout_ms(mClient, mRxTimeout);
             if (postData) {
                 write(postData, postDataLen);
             }
@@ -124,7 +126,7 @@ public:
     }
     void write(const char* data, int dataLen)
     {
-        assert(mClient && mConnected);
+        assert(mClient);
         int written = 0;
         while(written < dataLen) {
             int ret = esp_http_client_write(mClient, data + written, dataLen - written);

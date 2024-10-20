@@ -7,10 +7,10 @@ struct EventGroup
 {
     StaticEventGroup_t mEventStruct;
     EventGroupHandle_t mEventGroup;
-    EventBits_t mNeverResetBit;
-    EventGroup(EventBits_t neverResetBit=0)
+    EventBits_t mNeverResetBits;
+    EventGroup(EventBits_t neverResetBits=0)
     : mEventGroup(xEventGroupCreateStatic(&mEventStruct)),
-      mNeverResetBit(neverResetBit) {}
+      mNeverResetBits(neverResetBits) {}
     EventBits_t get() const { return xEventGroupGetBits(mEventGroup); }
     void setBits(EventBits_t bit) { xEventGroupSetBits(mEventGroup, bit); }
     void clearBits(EventBits_t bit) { xEventGroupClearBits(mEventGroup, bit); }
@@ -19,8 +19,11 @@ struct EventGroup
     {
         auto ret = xEventGroupWaitBits(mEventGroup, waitBits, autoReset, all,
             (msTimeout < 0) ? portMAX_DELAY : (msTimeout / portTICK_PERIOD_MS));
-        if ((ret & mNeverResetBit) && autoReset) {
-            setBits(mNeverResetBit);
+        if (autoReset) {
+            auto bitsToRestore = ret & mNeverResetBits;
+            if (bitsToRestore) {
+                setBits(bitsToRestore);
+            }
         }
         return ret & waitBits;
     }
