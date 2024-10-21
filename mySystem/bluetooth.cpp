@@ -1,6 +1,5 @@
 #include <esp_system.h>
 #include <esp_log.h>
-
 #include <esp_bt.h>
 #include <esp_bt_main.h>
 #include <esp_bt_device.h>
@@ -8,13 +7,11 @@
 #include "bluetooth.hpp"
 #include <cstring>
 
-static const char* TAG = "btstack";
-BluetoothStack* BluetoothStack::gInstance = nullptr;
-std::unique_ptr<BluetoothStack::Discovery> BluetoothStack::gDiscovery;
+BluetoothStack BtStack;
+static constexpr BluetoothStack& self() { return BtStack; }
 
-static char *bda2str(esp_bd_addr_t bda);
-static char *uuid2str(esp_bt_uuid_t *uuid);
-static bool get_name_from_eir(uint8_t *eir, char* bdname, uint8_t len);
+static bool getNameFromEir(uint8_t *eir, char* bdname, uint8_t len);
+static bool getUuidFromEir(uint8_t* val, esp_bt_uuid_t& uuid);
 
 void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
@@ -29,32 +26,34 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         break;
     }
     case ESP_BT_GAP_DISC_RES_EVT: {
-        if (gDiscovery) {
-            gDiscovery->getDeviceInfo(param);
+        if (self().mDiscovery) {
+            self().mDiscovery->addDevice(param);
         }
         break;
     }
     case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
         if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
             ESP_LOGI(TAG, "Device discovery stopped");
-            if (gDiscovery) {
-                gDiscovery->discoCompleteCb(gDiscovery->devices);
+            auto disco = self().mDiscovery.get();
+            if (disco) {
+                disco->onComplete(disco->mDevices);
             }
-        } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
+        }
+        else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
             ESP_LOGI(TAG, "Device discovery started");
         }
         break;
     }
     case ESP_BT_GAP_RMT_SRVCS_EVT: {
         if (param->rmt_srvcs.stat == ESP_BT_STATUS_SUCCESS) {
-            ESP_LOGI(TAG, "Services for device %s found",  bda2str(param->rmt_srvcs.bda));
+            ESP_LOGI(TAG, "Services for device %s found",  bda2str(param->rmt_srvcs.bda).c_str());
             for (int i = 0; i < param->rmt_srvcs.num_uuids; i++) {
                 esp_bt_uuid_t *u = param->rmt_srvcs.uuid_list + i;
-                ESP_LOGI(TAG, "--%s", uuid2str(u));
+                ESP_LOGI(TAG, "--%s", uuid2str(*u));
                 // ESP_LOGI(GAP_TAG, "--%d", u->len);
             }
         } else {
-            ESP_LOGI(TAG, "Services for device %s not found",  bda2str(param->rmt_srvcs.bda));
+            ESP_LOGI(TAG, "Services for device %s not found",  bda2str(param->rmt_srvcs.bda).c_str());
         }
         break;
     }
@@ -65,9 +64,29 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         break;
     case ESP_BT_GAP_KEY_NOTIF_EVT:
         ESP_LOGI(TAG, "ESP_BT_GAP_KEY_NOTIF_EVT passkey:%d", param->key_notif.passkey);
+        if (self().mShowPinCb) {
+            self().mShowPinCb(param->key_notif.passkey);
+        }
         break;
     case ESP_BT_GAP_KEY_REQ_EVT:
+    #ifdef MYBT_PIN_INPUT
+        if (self().mEnterPinCb) {
+            ESP_LOGI(TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
+            esp_bt_pin_code_t pin;
+            int len = self().mEnterPinCb(pin, sizeof(pin));
+            if (len > 0) {
+                esp_bt_gap_pin_reply(param->pin_req.bda, true, len, pin);
+            }
+            else {
+                esp_bt_gap_pin_reply(param->pin_req.bda, false, 0, nullptr);
+            }
+        }
+        else {
+            ESP_LOGW(TAG, "ESP_BT_GAP_KEY_REQ_EVT Pin requested, but we have no input function");
+        }
+    #else
         ESP_LOGI(TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
+    #endif
         break;
 #endif
     default: {
@@ -76,16 +95,41 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
     }
     }
 }
-void BluetoothStack::avrcControllerCallback(esp_avrc_ct_cb_event_t event,
-                                            esp_avrc_ct_cb_param_t *param)
+void BluetoothStack::avrcCallback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
 {
     ESP_LOGI(TAG, "remote control cb event: %d", event);
 }
+#if (CONFIG_BT_SSP_ENABLED == true)
+#if MYBT_PIN_INPUT
+void BluetoothStack::setupPinAuth(ShowPinFunc showPin, EnterPinFunc enterPin)
+{
+    mShowPinCb = showPin;
+    mEnterPinCb = readPin;
+    // Classic Bluetooth GAP
+    esp_bt_io_cap_t ioCap = showPin
+        ? (enterPin ? ESP_BT_IO_CAP_IO : ESP_BT_IO_CAP_OUT)
+        : (enterPin ? ESP_BT_IO_CAP_IN : ESP_BT_IO_CAP_NONE);
+    esp_bt_gap_set_security_param(ESP_BT_SP_IOCAP_MODE, &ioCap, sizeof(ioCap));
+}
+#else
+void BluetoothStack::setupPinAuth(ShowPinFunc showPin)
+{
+    // Classic Bluetooth GAP
+    mShowPinCb = showPin;
+    esp_bt_io_cap_t ioCap = showPin ? ESP_BT_IO_CAP_IN : ESP_BT_IO_CAP_NONE;
+    esp_bt_gap_set_security_param(ESP_BT_SP_IOCAP_MODE, &ioCap, sizeof(ioCap));
+}
 
+#endif
+void BluetoothStack::setPin(uint8_t* pin, int pinLen)
+{
+    esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, pinLen, pin);
+}
+#endif
 bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
 {
-    if (gInstance) {
-        ESP_LOGE(TAG, "Bluetooth alreay started");
+    if (mMode) {
+        ESP_LOGE(TAG, "Already started");
         return false;
     }
 #if CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY == TRUE
@@ -117,125 +161,156 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     }
     /* set up device name */
     esp_bt_dev_set_device_name(discoName);
-
     esp_bt_gap_register_callback(gapCallback);
 
     /* initialize AVRCP controller */
     esp_avrc_ct_init();
-    esp_avrc_ct_register_callback(avrcControllerCallback);
-
+    esp_avrc_ct_register_callback(avrcCallback);
     return true;
 }
 void BluetoothStack::becomeDiscoverableAndConnectable()
 {
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-#else
-    // legacy API
-    esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
-#endif
-
-}
-void BluetoothStack::discoverDevices(void(*cb)(DeviceList& devices))
-{
-    if (gDiscovery) {
-        ESP_LOGE(TAG, "Discovery already in progress");
-        return;
-    }
-    gDiscovery.reset(new Discovery);
-    gDiscovery->discoCompleteCb = cb;
-    esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
 }
 
 void BluetoothStack::disable(esp_bt_mode_t mode)
 {
-    if (gInstance) {
-        delete gInstance;
-        gInstance = nullptr;
-    }
     esp_bluedroid_disable(); // Error: Bluedroid already disabled
     esp_bluedroid_deinit();  // Error: Bluedroid already deinitialized
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
     esp_bt_mem_release(mode);
 }
-void BluetoothStack::Discovery::getDeviceInfo(esp_bt_gap_cb_param_t *param)
+std::string codInfo(esp_bt_cod_t cod, uint32_t codRaw)
+{
+    std::string result;
+    result.resize(32);
+    result = "major: ";
+    auto maj = esp_hid_cod_major_str(cod.major);
+    if (maj) {
+        result += maj;
+    }
+    else {
+        result += '(';
+        result += std::to_string(cod.major);
+        result += ')';
+    }
+    result += " minor: ";
+    auto minor = cod.minor;
+    if (cod.major == 5) { // PERIPHERAL
+        if (minor & ESP_HID_COD_MIN_KEYBOARD) {
+            result += "KEYBOARD";
+        }
+        if (minor & ESP_HID_COD_MIN_MOUSE) {
+            if (minor & ESP_HID_COD_MIN_KEYBOARD) {
+                result += '+';
+            }
+            result += "MOUSE";
+        }
+        if ((minor & 0xF0) && (minor & 0x0f)) {
+            result += "+more(";
+            result += std::to_string(minor);
+            result += ')';
+        }
+    }
+    else {
+        result += '(';
+        result += std::to_string(minor);
+        result += ')';
+    }
+    result += " svc: ";
+    result += std::to_string(cod.service);
+    result += " raw: ";
+    result += std::to_string(codRaw);
+    return result;
+}
+bool BluetoothStack::DeviceInfo::isPeripheral(uint8_t type) const {
+    return (bt.cod.major == 5) && (bt.cod.minor & type);
+}
+void BluetoothStack::DeviceInfo::print(const char* tab)
+{
+    ESP_LOGI(TAG, "%sName: %.*s", tab, name.size(), name.c_str());
+    ESP_LOGI(TAG, "%sClass of Device: %s", tab, codInfo(bt.cod, bt.codRaw).c_str());
+    ESP_LOGI(TAG, "%sUsage: %s", tab, esp_hid_usage_str(esp_hid_usage_from_cod(bt.codRaw)));
+    ESP_LOGI(TAG, "%sRSSI: %d", tab, rssi);
+    if (bt.uuid.len) {
+        ESP_LOGI(TAG, "%sUUID: %s", tab, uuid2str(bt.uuid));
+    }
+}
+
+void BluetoothStack::Discovery::addDevice(esp_bt_gap_cb_param_t *param)
 {
     Addr addr;
     memcpy(addr.data(), param->disc_res.bda, addr.size());
-    if (devices.find(addr) != devices.end()) {
+    if (mDevices.find(addr) != mDevices.end()) {
         return;
     }
-    ESP_LOGI(TAG, "Device found: %s", bda2str(param->disc_res.bda));
-    auto& info = devices[addr];
+    ESP_LOGI(TAG, "Device found: %s", bda2str(param->disc_res.bda).c_str());
+    auto& info = mDevices[addr];
     for (int i = 0; i < param->disc_res.num_prop; i++) {
-        auto p = param->disc_res.prop + i;
-        switch (p->type) {
-            case ESP_BT_GAP_DEV_PROP_COD:
-                info.devClass = *(uint32_t *)(p->val);
-                ESP_LOGI(TAG, "--Class of Device: 0x%x", info.devClass);
-                break;
-            case ESP_BT_GAP_DEV_PROP_RSSI:
-                info.rssi = *(int8_t *)(p->val);
-                ESP_LOGI(TAG, "--RSSI: %d", info.rssi);
-                break;
-            case ESP_BT_GAP_DEV_PROP_BDNAME:
-                ESP_LOGI(TAG, "Device name: %.*s", p->len, (char*)p->val);
-                if (info.name.empty()) {
-                    info.name.assign((char*)p->val, p->len);
-                }
-                break;
-            case ESP_BT_GAP_DEV_PROP_EIR: {
-                char name[128];
-                if (!get_name_from_eir((uint8_t*)p->val, name, sizeof(name))) {
-                    strcpy(name, "(error)");
-                }
-                ESP_LOGI(TAG, "Device name from EIR: %s", name);
-                if (info.name.empty()) {
-                    info.name = name;
-                }
-                break;
+        info.fillFromGapProp(param->disc_res.prop[i]);
+    }
+    info.print();
+}
+bool BluetoothStack::DeviceInfo::fillFromGapProp(esp_bt_gap_dev_prop_t& p)
+{
+    switch (p.type) {
+        case ESP_BT_GAP_DEV_PROP_COD:
+            bt.codRaw = *(uint32_t *)(p.val);
+            return true;
+        case ESP_BT_GAP_DEV_PROP_RSSI:
+            rssi = *(int8_t *)(p.val);
+            return true;
+        case ESP_BT_GAP_DEV_PROP_BDNAME:
+            if (name.empty()) {
+                name.assign((char*)p.val, p.len);
             }
-            default:
-                ESP_LOGI(TAG, "Unknown property %d", p->type);
-                break;
+            return true;
+        case ESP_BT_GAP_DEV_PROP_EIR: {
+            if (getUuidFromEir((uint8_t*)p.val, bt.uuid)) {
+                return true;
+            }
+            char buf[128];
+            if (!getNameFromEir((uint8_t*)p.val, buf, sizeof(buf))) {
+                ESP_LOGW(TAG, "\tCan't get UUID or name from EIR");
+                return false;
+            }
+            ESP_LOGI(TAG, "\tDevice name from EIR: %s", buf);
+            if (name.empty()) {
+                name = buf;
+            }
+            return true;
         }
+        default:
+            ESP_LOGI(TAG, "Unknown GAP property of type %d", p.type);
+            return false;
     }
 }
-static char *bda2str(esp_bd_addr_t bda)
+const char* BluetoothStack::bda2str(const uint8_t* bda, char* buf, int bufLen)
 {
-    static char str[18];
     if (bda == NULL) {
         return NULL;
     }
-
-    uint8_t *p = bda;
-    sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
-            p[0], p[1], p[2], p[3], p[4], p[5]);
-    return str;
+    const uint8_t *p = bda;
+    snprintf(buf, bufLen, "%02x:%02x:%02x:%02x:%02x:%02x", p[0], p[1], p[2], p[3], p[4], p[5]);
+    return buf;
 }
-std::string BluetoothStack::Addr::toString() const
+std::string BluetoothStack::bda2str(const uint8_t* bda)
 {
     std::string result;
     result.resize(18);
-    auto p = data();
-    snprintf(&result.front(), 18, "%02x:%02x:%02x:%02x:%02x:%02x",
-        p[0], p[1], p[2], p[3], p[4], p[5]);
+    bda2str(bda, &result.front(), 18);
     return result;
 }
-static char *uuid2str(esp_bt_uuid_t *uuid)
+const char* BluetoothStack::uuid2str(const esp_bt_uuid_t& uuid)
 {
     static char str[37];
-    if (uuid == NULL || str == NULL) {
-        return NULL;
-    }
-
-    if (uuid->len == 2) {
-        sprintf(str, "%04x", uuid->uuid.uuid16);
-    } else if (uuid->len == 4) {
-        sprintf(str, "%08x", uuid->uuid.uuid32);
-    } else if (uuid->len == 16) {
-        uint8_t *p = uuid->uuid.uuid128;
+    if (uuid.len == 2) {
+        sprintf(str, "%04x", uuid.uuid.uuid16);
+    } else if (uuid.len == 4) {
+        sprintf(str, "%08x", uuid.uuid.uuid32);
+    } else if (uuid.len == 16) {
+        const uint8_t *p = uuid.uuid.uuid128;
         sprintf(str, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
                 p[15], p[14], p[13], p[12], p[11], p[10], p[9], p[8],
                 p[7], p[6], p[5], p[4], p[3], p[2], p[1], p[0]);
@@ -246,7 +321,7 @@ static char *uuid2str(esp_bt_uuid_t *uuid)
     return str;
 }
 
-static bool get_name_from_eir(uint8_t *eir, char* bdname, uint8_t len)
+static bool getNameFromEir(uint8_t *eir, char* bdname, uint8_t len)
 {
     if (!eir) {
         return false;
@@ -267,4 +342,39 @@ static bool get_name_from_eir(uint8_t *eir, char* bdname, uint8_t len)
     memcpy(bdname, rmt_bdname, rmt_bdname_len);
     bdname[rmt_bdname_len] = '\0';
     return true;
+}
+static bool getUuidFromEir(uint8_t* val, esp_bt_uuid_t& uuid)
+{
+    uint8_t len = 0;
+    uint8_t *data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_CMPL_16BITS_UUID, &len);
+    if (!data) {
+        data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_INCMPL_16BITS_UUID, &len);
+    }
+
+    if (data && len == ESP_UUID_LEN_16) {
+        uuid.len = ESP_UUID_LEN_16;
+        uuid.uuid.uuid16 = data[0] + (data[1] << 8);
+        return true;
+    }
+    data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_CMPL_32BITS_UUID, &len);
+    if (!data) {
+        data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_INCMPL_32BITS_UUID, &len);
+    }
+    if (data && len == ESP_UUID_LEN_32) {
+        uuid.len = len;
+        uuid.uuid.uuid32 = *((uint32_t*)data);
+        return true;
+    }
+
+    data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_CMPL_128BITS_UUID, &len);
+    if (!data) {
+        data = esp_bt_gap_resolve_eir_data(val, ESP_BT_EIR_TYPE_INCMPL_128BITS_UUID, &len);
+    }
+
+    if (data && len == ESP_UUID_LEN_128) {
+        uuid.len = len;
+        memcpy(uuid.uuid.uuid128, data, len);
+        return true;
+    }
+    return false;
 }
