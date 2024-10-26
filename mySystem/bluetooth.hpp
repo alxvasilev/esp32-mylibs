@@ -7,6 +7,7 @@
 #include <esp_hid_common.h>
 #include <string>
 #include <map>
+#include <array>
 #include <memory>
 
 class BluetoothStack;

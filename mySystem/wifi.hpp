@@ -8,6 +8,7 @@ class WifiBase
 protected:
     EventGroup mEvents;
     const bool mIsAp;
+    esp_netif_t* mNetif = nullptr;
     esp_ip4_addr mLocalIp;
     void eventLoopCreateAndRegisterHandler(esp_event_handler_t handler);
 public:

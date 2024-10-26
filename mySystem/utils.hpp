@@ -102,7 +102,7 @@ static inline void msDelay(uint32_t ms)
 }
 static inline void msSleep(int ms)
 {
-    vTaskDelay(ms / portTICK_RATE_MS);
+    vTaskDelay(ms / portTICK_PERIOD_MS);
 }
 
 template <typename T>

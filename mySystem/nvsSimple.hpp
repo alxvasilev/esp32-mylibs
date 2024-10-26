@@ -16,6 +16,7 @@ protected:
     nvs_handle_t mHandle = 0;
     const char* mNamespace = nullptr; // must be a string literal, we are saving the passed pointer for later use
 public:
+    static constexpr const char* TAG = "NVS";
     std::function<bool(const Substring& key, const Substring& val)> strValValidator;
     std::function<bool(const Substring& key, int32_t val)> int32ValValidator;
     nvs_handle_t handle() const { return mHandle; }
@@ -34,4 +35,28 @@ public:
     void registerHttpHandlers(http::Server& server);
 };
 
+static inline nvs_iterator_t nvsEntryNext(nvs_iterator_t it)
+{
+    auto err = nvs_entry_next(&it);
+    if (err) {
+        if (it) {
+            nvs_release_iterator(it);
+        }
+        ESP_LOGW(NvsSimple::TAG, "getNext: nvs_entry_next returned error %s", esp_err_to_name(err));
+        return nullptr;
+    }
+    return it;
+}
+
+static inline nvs_iterator_t nvsEntryFind(const char *partitionName, const char *nsName, nvs_type_t type)
+{
+    nvs_iterator_t it = nullptr;
+    auto err = nvs_entry_find(partitionName, nsName, type, &it);
+    if (err) {
+        ESP_LOGW(NvsSimple::TAG, "nvs_entry_find returned error %s", esp_err_to_name(err));
+        assert(!it);
+        return nullptr;
+    }
+    return it;
+}
 #endif

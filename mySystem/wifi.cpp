@@ -3,6 +3,7 @@
 #include <esp_log.h>
 #include <cstring>
 #include "wifi.hpp"
+#include <esp_mac.h>
 
 #define myassert(cond) if (!(cond)) { \
     ESP_LOGE("ASSERT", "Assertion failed: %s at %s:%d", #cond, __FILE__, __LINE__); \
@@ -102,37 +103,32 @@ WifiClient::~WifiClient()
 void WifiAp::reconfigDhcpServer()
 {
     // stop DHCP server
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(mNetif));
     // assign a static IP to the network interface
-    tcpip_adapter_ip_info_t info;
+    esp_netif_ip_info_t info;
     memset(&info, 0, sizeof(info));
 
-    IP4_ADDR(&info.ip, 192, 168, 0, 1);
-    IP4_ADDR(&info.gw, 192, 168, 0, 1); //ESP acts as router, so gw addr will be its own addr
-    IP4_ADDR(&info.netmask, 255, 255, 255, 0);
+    mLocalIp.addr = info.ip.addr = esp_netif_ip4_makeu32(192, 168, 0, 1);
+    info.gw.addr = esp_netif_ip4_makeu32(192, 168, 0, 1); //ESP acts as router, so gw addr will be its own addr
+    info.netmask.addr = esp_netif_ip4_makeu32(255, 255, 255, 0);
     ESP_LOGI(TAG, "dhcp ip is" IPSTR, IP2STR(&info.ip));
-    mLocalIp.addr = info.ip.addr;
-    ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(mNetif, &info));
     // start the DHCP server
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(mNetif));
     ESP_LOGI("WiFiAP", "DHCP server started");
 }
 
-void WifiAp::apEventHandler(void* userp, esp_event_base_t event_base,
-                                 int32_t event_id, void* event_data)
+void WifiAp::apEventHandler(void* userp, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
     switch(event_id) {
     case WIFI_EVENT_AP_STACONNECTED: {
         auto event = (wifi_event_ap_staconnected_t*)event_data;
-        ESP_LOGI(TAG, "station:" MACSTR " join, AID=%d",
-                 MAC2STR(event->mac), event->aid);
+        ESP_LOGI(TAG, "station:" MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
         break;
     }
     case WIFI_EVENT_AP_STADISCONNECTED: {
         auto event = (wifi_event_ap_stadisconnected_t*)event_data;
-        ESP_LOGI(TAG, "station:" MACSTR "leave, AID=%d",
-                 MAC2STR(event->mac),
-                 event->aid);
+        ESP_LOGI(TAG, "station:" MACSTR "leave, AID=%d", MAC2STR(event->mac), event->aid);
         break;
     }
     default:

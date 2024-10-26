@@ -94,9 +94,9 @@ void St7735Driver::init(Coord width, Coord height, const PinCfg& pins)
     mRstPin = pins.rst;
 
     //Initialize non-SPI GPIOs
-    gpio_pad_select_gpio((gpio_num_t)mDcPin);
+    esp_rom_gpio_pad_select_gpio((gpio_num_t)mDcPin);
     gpio_set_direction((gpio_num_t)mDcPin, GPIO_MODE_OUTPUT);
-    gpio_pad_select_gpio((gpio_num_t)mRstPin);
+    esp_rom_gpio_pad_select_gpio((gpio_num_t)mRstPin);
     gpio_set_direction((gpio_num_t)mRstPin, GPIO_MODE_OUTPUT);
 
     displayReset();

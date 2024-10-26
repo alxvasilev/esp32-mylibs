@@ -89,9 +89,22 @@ NvsSimple::~NvsSimple()
 esp_err_t NvsSimple::httpDumpToJson(httpd_req_t* req)
 {
     auto& self = *static_cast<NvsSimple*>(req->user_ctx);
-    nvs_iterator_t it = nvs_entry_find("nvs", self.mNamespace, NVS_TYPE_ANY);
+    nvs_iterator_t it = nullptr;
+    auto err = nvs_entry_find("nvs", self.mNamespace, NVS_TYPE_ANY, &it);
+    if (err) {
+        assert(!it);
+        return err;
+    }
     std::string json = "{";
-    for(; it; it = nvs_entry_next(it)) {
+    for(;;) {
+        err = nvs_entry_next(&it);
+        if (err) {
+            assert(!it);
+            return err;
+        }
+        if (!it) {
+            break;
+        }
         nvs_entry_info_t info;
         nvs_entry_info(it, &info);
         if (info.type == NVS_TYPE_STR) {
@@ -146,7 +159,7 @@ esp_err_t NvsSimple::httpSetParam(httpd_req_t* req)
         }
         *colon = 0; // null-terminate before the colon
         char type = *(colon + 1);
-        esp_err_t err;
+        esp_err_t err = ESP_OK;
         if (type == 's') {
             if (self.strValValidator && !self.strValValidator(key, keyVal.val)) {
                 http::jsonSendError(req, "Validation failed for string key '", key.str, "'");

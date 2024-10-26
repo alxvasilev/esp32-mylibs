@@ -1,9 +1,12 @@
+/* Version for ESP_IDF >= 5 */
+#include <esp_idf_version.h>
 #include "spi.hpp"
+#include <esp32/rom/gpio.h>
 #include <driver/gpio.h>
 #include <soc/spi_reg.h>
 #include <soc/spi_periph.h>
 #include <driver/periph_ctrl.h>
-#include <driver/spi_common_internal.h>
+#include <esp_private/spi_common_internal.h>
 #include <soc/dport_reg.h>
 #include <algorithm>
 #include <vector>
@@ -119,7 +122,8 @@ void SpiMaster::fifoMemset(uint32_t val, int nWords)
 }
 void SpiMaster::configPins(const SpiPinCfg& pins)
 {
-/*
+#if 1
+    // these seem to be the portable way of doing it
     gpio_set_direction((gpio_num_t)pins.mosi, GPIO_MODE_OUTPUT);
     gpio_iomux_in(pins.mosi, spi_periph_signal[mSpiHost].spid_in);
     gpio_iomux_out(pins.mosi, spi_periph_signal[mSpiHost].func, false);
@@ -131,7 +135,8 @@ void SpiMaster::configPins(const SpiPinCfg& pins)
     gpio_set_direction((gpio_num_t)pins.cs, GPIO_MODE_OUTPUT);
     gpio_iomux_in(pins.cs, spi_periph_signal[mSpiHost].spics_out[0]);
     gpio_iomux_out(pins.cs, spi_periph_signal[mSpiHost].func, false);
-*/
+#else
+    // these are model-specific ROM functions, included with <model>/rom/gpio.h
     gpio_set_direction((gpio_num_t)pins.mosi, GPIO_MODE_INPUT_OUTPUT);
     gpio_matrix_out(pins.mosi, spi_periph_signal[mSpiHost].spid_out, false, false);
     gpio_matrix_in(pins.mosi, spi_periph_signal[mSpiHost].spid_in, false);
@@ -143,7 +148,7 @@ void SpiMaster::configPins(const SpiPinCfg& pins)
     gpio_set_direction((gpio_num_t)pins.cs, GPIO_MODE_INPUT_OUTPUT);
     gpio_matrix_out(pins.cs, spi_periph_signal[mSpiHost].spics_out[0], false, false);
     gpio_matrix_in(pins.cs, spi_periph_signal[mSpiHost].spics_in, false);
-
+#endif
 }
 
 void SpiMaster::spiSend(const void* data, int size)

@@ -136,27 +136,26 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     hidh_set_dynamic_memory(malloc(sizeof(tHID_HOST_CTB), MALLOC_CAP_SPIRAM));
 #endif
 
-//    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
     esp_err_t err;
     esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     cfg.mode = mode;
     if ((err = esp_bt_controller_init(&cfg)) != ESP_OK) {
-        ESP_LOGE(TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_bt_controller_init failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
     if ((err = esp_bt_controller_enable(mode)) != ESP_OK) {
-        ESP_LOGE(TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
     if ((err = esp_bluedroid_init()) != ESP_OK) {
-        ESP_LOGE(TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_bluedroid_init failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
     if ((err = esp_bluedroid_enable()) != ESP_OK) {
-        ESP_LOGE(TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s\n", esp_err_to_name(err));
         return false;
     }
     /* set up device name */
@@ -308,7 +307,7 @@ const char* BluetoothStack::uuid2str(const esp_bt_uuid_t& uuid)
     if (uuid.len == 2) {
         sprintf(str, "%04x", uuid.uuid.uuid16);
     } else if (uuid.len == 4) {
-        sprintf(str, "%08x", uuid.uuid.uuid32);
+        sprintf(str, "%08lx", uuid.uuid.uuid32);
     } else if (uuid.len == 16) {
         const uint8_t *p = uuid.uuid.uuid128;
         sprintf(str, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
