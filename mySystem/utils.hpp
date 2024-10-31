@@ -18,6 +18,11 @@
     ESP_LOGE("ASSERT", "Assertion failed: %s at %s:%d", #cond, __FILE__, __LINE__); \
     *((int*)nullptr) = 0; }
 
+#define MY_ESP_ERRCHECK(expr, tag, msg, stmt) do {                                 \
+    auto err = (expr);                                                             \
+    if (err) { ESP_LOGW(tag, "Error %s: %s", msg, esp_err_to_name(err)); stmt; }   \
+    } while(false)
+
 #define TRACE ESP_LOGI("TRC", "%s:%d", __FILE__, __LINE__);
 
 #define MY_STRINGIFY_HELPER(x) #x
