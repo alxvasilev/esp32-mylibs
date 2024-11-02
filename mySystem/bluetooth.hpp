@@ -80,11 +80,12 @@ public:
     void setPin(uint8_t* pin, int pinLen);
 #endif
     bool start(esp_bt_mode_t mode, const char* discoName);
-    void disable(esp_bt_mode_t mode);
+    void shutdown();
+    void disable(esp_bt_mode_t mode); // releases BT stack memory pools
     void disableCompletely() { disable(ESP_BT_MODE_BTDM); }
     void disableBLE() { disable(ESP_BT_MODE_BLE); }
     void disableClassic() { disable(ESP_BT_MODE_CLASSIC_BT); }
-    void becomeDiscoverableAndConnectable();
+    esp_err_t becomeDiscoverableAndConnectable();
     template <class Disco=Discovery, typename... Args>
     void discoverDevices(float secs, Args... args) {
         if (mDiscovery) {

@@ -12,6 +12,7 @@ static constexpr BluetoothStack& self() { return BtStack; }
 
 static bool getNameFromEir(uint8_t *eir, char* bdname, uint8_t len);
 static bool getUuidFromEir(uint8_t* val, esp_bt_uuid_t& uuid);
+static const char* gapEventToStr(esp_bt_gap_cb_event_t event);
 
 void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
@@ -88,9 +89,9 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         ESP_LOGI(TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
     #endif
         break;
-#endif
+#endif // SSP enabled
     default: {
-        ESP_LOGI(TAG, "GAP event: %d", event);
+        ESP_LOGI(TAG, "Unhandled GAP event: %s(%d)", gapEventToStr(event), event);
         break;
     }
     }
@@ -130,54 +131,58 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
 {
     if (mMode) {
         ESP_LOGE(TAG, "Already started");
-        return false;
+        return true;
     }
-#if CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY == TRUE
-    hidh_set_dynamic_memory(malloc(sizeof(tHID_HOST_CTB), MALLOC_CAP_SPIRAM));
-#endif
-
     esp_err_t err;
     esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     cfg.mode = mode;
     if ((err = esp_bt_controller_init(&cfg)) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bt_controller_init failed: %s\n", esp_err_to_name(err));
+        shutdown();
         return false;
     }
 
     if ((err = esp_bt_controller_enable(mode)) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s\n", esp_err_to_name(err));
+        shutdown();
         return false;
     }
 
     if ((err = esp_bluedroid_init()) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bluedroid_init failed: %s\n", esp_err_to_name(err));
+        shutdown();
         return false;
     }
 
     if ((err = esp_bluedroid_enable()) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s\n", esp_err_to_name(err));
+        shutdown();
         return false;
     }
     /* set up device name */
-    esp_bt_dev_set_device_name(discoName);
+    esp_bt_gap_set_device_name(discoName);
     esp_bt_gap_register_callback(gapCallback);
 
     /* initialize AVRCP controller */
     esp_avrc_ct_init();
     esp_avrc_ct_register_callback(avrcCallback);
+    mMode = mode;
     return true;
 }
-void BluetoothStack::becomeDiscoverableAndConnectable()
+esp_err_t BluetoothStack::becomeDiscoverableAndConnectable()
 {
-    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+    return esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 }
 
-void BluetoothStack::disable(esp_bt_mode_t mode)
+void BluetoothStack::shutdown()
 {
     esp_bluedroid_disable(); // Error: Bluedroid already disabled
     esp_bluedroid_deinit();  // Error: Bluedroid already deinitialized
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
+}
+void BluetoothStack::disable(esp_bt_mode_t mode)
+{
     esp_bt_mem_release(mode);
 }
 std::string codInfo(esp_bt_cod_t cod, uint32_t codRaw)
@@ -376,4 +381,14 @@ static bool getUuidFromEir(uint8_t* val, esp_bt_uuid_t& uuid)
         return true;
     }
     return false;
+}
+
+#define EVTCASE(name) case ESP_BT_GAP_##name: return #name
+const char* gapEventToStr(esp_bt_gap_cb_event_t event)
+{
+    switch(event) {
+        EVTCASE(ACL_CONN_CMPL_STAT_EVT);
+        EVTCASE(ACL_DISCONN_CMPL_STAT_EVT);
+        default: return "(unknown)";
+    }
 }
