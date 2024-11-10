@@ -50,7 +50,7 @@ public:
     }
 #endif
 
-#ifdef HTTPD_WS_SUPPORT
+#if CONFIG_HTTPD_WS_SUPPORT
     typedef esp_err_t (*wsReqHandler)(wsConnection& conn, httpd_ws_frame_t* msg);
 protected:
     struct wsHandlerCtx {
