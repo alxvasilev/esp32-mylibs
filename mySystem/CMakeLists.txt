@@ -1,4 +1,4 @@
-set(SRCS nvsSimple.cpp sdcard.cpp uart.cpp utils.cpp utils-parse.cpp wifi.cpp)
+set(SRCS nvsSimple.cpp sdcard.cpp uart.cpp utils.cpp utils-parse.cpp wifi.cpp asyncCall.cpp)
 set(DEPS nvs_flash esp_http_server httpLib fatfs esp_timer esp_wifi bt esp_hid mdns)
 
 if (CONFIG_BT_ENABLED)

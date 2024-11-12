@@ -141,51 +141,6 @@ const char* vtsnprintf(char* buf, int bufSize, Args&&... args)
     }
 }
 
-struct AsyncMsgBase
-{
-    esp_timer_handle_t mTimer = nullptr;
-    void post(uint32_t usAfter=0)
-    {
-        ESP_ERROR_CHECK(esp_timer_start_once(mTimer, usAfter));
-    }
-    ~AsyncMsgBase() {
-        if (mTimer) {
-            esp_timer_stop(mTimer);
-            esp_timer_delete(mTimer);
-        }
-    }
-};
-
-template <class Cb>
-static void asyncCall(Cb&& func, uint32_t usAfter = 0)
-{
-    struct AsyncMsg: public AsyncMsgBase {
-        Cb mCallback;
-        AsyncMsg(Cb&& cb): mCallback(std::forward<Cb>(cb))
-        {
-            esp_timer_create_args_t args = {};
-            args.dispatch_method = ESP_TIMER_TASK;
-            args.name = "asyncCall";
-            args.arg = this;
-            args.callback = &onTimer;
-            ESP_ERROR_CHECK(esp_timer_create(&args, &mTimer));
-        }
-        static void onTimer(void* ctx) {
-            auto self = static_cast<AsyncMsg*>(ctx);
-#ifdef __EXCEPTIONS
-            try {
-#endif
-                self->mCallback();
-#ifdef __EXCEPTIONS
-            } catch(std::exception& e) {}
-#endif
-            delete self;
-        }
-    };
-    auto msg = new AsyncMsg(std::forward<Cb>(func));
-    msg->post(usAfter);
-}
-
 class ElapsedTimer
 {
 protected:
