@@ -64,7 +64,6 @@ protected:
                 [](void* pStack, void* pTcb) {
                     heap_caps_free(pStack);
                     heap_caps_free(pTcb);
-                    printf("==========Freeing task stack and TCB\n");
             });
 #else
             if (!mPsramCtx) {
@@ -91,6 +90,7 @@ protected:
     }
     void cleanupBeforeExit()
     {
+#ifndef FREERTOS_TASK_HAVE_CUST_ALLOC
         if (mPsramCtx) {
             // TCB are cleanup in IDLE task, so give it some time
             TimerHandle_t timer = xTimerCreate("cleanup", pdMS_TO_TICKS(4000), pdFALSE, mPsramCtx,
@@ -103,6 +103,7 @@ protected:
             mPsramCtx = nullptr;
             xTimerStart(timer, portMAX_DELAY);
         }
+#endif
         mHandle = nullptr;
         vTaskDelete(nullptr);
     }
