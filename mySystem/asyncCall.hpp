@@ -6,6 +6,7 @@
 #include <exception>
 #include <memory>
 #include <type_traits>
+#include <esp_log.h>
 
 template <class Cb>
 static void asyncCall(Cb&& func, uint32_t delayTicks = 1)
@@ -108,20 +109,19 @@ struct BlockingCall {
         xTimerDelete(mTimer, portMAX_DELAY);
         gBlockingAsyncCtx.releaseSlot(mSlot);
     }
+    template<bool kToggle=kIsVoidRet>
+    std::enable_if_t<kToggle, void> call() { mCallback(); }
+    template<bool kToggle=kIsVoidRet>
+    std::enable_if_t<!kToggle, void> call() { mRetVal = mCallback(); }
     static void onTimer(TimerHandle_t xTimer)
     {
         auto self = static_cast<BlockingCall*>(pvTimerGetTimerID(xTimer));
 #ifdef __EXCEPTIONS
         try {
 #endif
-            if (kIsVoidRet) {
-                self->mCallback();
-            }
-            else {
-                self->mRetVal = self->mCallback();
-            }
+            self->call();
 #ifdef __EXCEPTIONS
-        } catch(std::exception& e) {}
+        } catch(std::exception& e) { ESP_LOGW("asyncCallWait", "Exception in user func: %s", e.what()); }
 #endif
         gBlockingAsyncCtx.signalSlot(self->mSlot);
     }
