@@ -154,7 +154,7 @@ public:
         return *this;
     }
     template<class T>
-    DynBuffer& append(T val) { return append((const char*)&val, sizeof(val)); }
+    DynBuffer& appendVal(T val) { return append((const char*)&val, sizeof(val)); }
     DynBuffer& appendChar(char ch)
     {
         ensureFreeSpace(1);

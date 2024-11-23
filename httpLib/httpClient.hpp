@@ -52,6 +52,7 @@ protected:
         cfg.user_data = this;
         cfg.timeout_ms = kConnectTimeout;
         cfg.buffer_size = mBufSize;
+        cfg.buffer_size_tx = mBufSize;
         cfg.method = method;
 
         mClient = esp_http_client_init(&cfg);

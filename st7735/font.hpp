@@ -60,6 +60,7 @@ struct Font
         auto ofs = (idx == 0) ? 0 : offsets[idx - 1];
         return (offsets[idx] - ofs) / byteHeightOrWidth;
     }
+    int textWidth(int len) { return len * (width + charSpacing); }
 };
 
 #endif // FONT_HPP

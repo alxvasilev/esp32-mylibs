@@ -31,7 +31,6 @@ Coord fontWidth() const { return mFont->width * mFontScale; }
 int8_t charWidth(char ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * mFontScale; }
 int8_t charHeight() const { return (mFont->height + mFont->lineSpacing) * mFontScale; }
 int8_t charsPerLine() const { return Display::width() / charWidth(); }
-int textWidth(int charCnt) const { return charCnt * (mFont->width + mFont->charSpacing); }
 void skipCharsX(int n) { cursorX += textWidth(n); }
 const Font* font() const { return mFont; }
 using Display::Display;
@@ -296,6 +295,8 @@ void nputs(const char* str, int len, uint8_t flags=0)
         }
     }
 }
+int textWidth(const Font& font, int len) { return len * (font.width + font.charSpacing); }
+int textWidth(int len) { return textWidth(*mFont, len); }
 int textWidth(const char *str)
 {
     if (mFont->isMono()) {

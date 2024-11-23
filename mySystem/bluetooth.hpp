@@ -3,7 +3,6 @@
 
 #include <esp_bt.h>
 #include <esp_gap_bt_api.h>
-#include <esp_avrc_api.h>
 #include <esp_hid_common.h>
 #if CONFIG_BT_BLE_ENABLED
     #include <esp_gap_ble_api.h>
@@ -84,7 +83,6 @@ protected:
 #endif
     esp_bt_mode_t mMode = ESP_BT_MODE_IDLE;
     static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param);
-    static void avrcCallback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param);
 #if CONFIG_BT_BLE_ENABLED
     static void bleGapCallback(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t * param);
 #endif
@@ -107,7 +105,7 @@ public:
     void disableCompletely() { disable(ESP_BT_MODE_BTDM); }
     void disableBLE() { disable(ESP_BT_MODE_BLE); }
     void disableClassic() { disable(ESP_BT_MODE_CLASSIC_BT); }
-    esp_err_t becomeDiscoverableAndConnectable();
+    esp_err_t becomeDiscoverableAndConnectable(bool enable=true);
     template <class T=Discovery, typename... Args>
     bool discoverDevices(float secs, esp_bt_mode_t scanMode, const Args&... args) {
         if (mDiscovery) {

@@ -30,6 +30,11 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         }
         break;
     }
+    case ESP_BT_GAP_ENC_CHG_EVT:
+        static constexpr const char* strEnc[] = {"OFF", "E0", "AES"};
+        ESP_LOGI(TAG, "Encryption mode to %s changed to %s", bda2str(param->enc_chg.bda).c_str(),
+            strEnc[param->enc_chg.enc_mode]);
+        break;
     case ESP_BT_GAP_DISC_RES_EVT: {
         if (self().mDiscovery) {
             self().mDiscovery->addDevice(param->disc_res);
@@ -100,10 +105,7 @@ void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
     }
     }
 }
-void BluetoothStack::avrcCallback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
-{
-    ESP_LOGI(TAG, "remote control cb event: %d", event);
-}
+
 #if (CONFIG_BT_SSP_ENABLED == true)
 #if MYBT_PIN_INPUT
 void BluetoothStack::setupPinAuth(ShowPinFunc showPin, EnterPinFunc enterPin)
@@ -265,8 +267,8 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     esp_err_t err;
     esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     cfg.mode = mode;
-    cfg.ble_max_conn = 3;
-    cfg.bt_max_acl_conn = 3;
+    cfg.ble_max_conn = 4;
+    cfg.bt_max_acl_conn = 4;
     if ((err = esp_bt_controller_init(&cfg)) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bt_controller_init failed: %s\n", esp_err_to_name(err));
         shutdown();
@@ -298,10 +300,6 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     if (mode & ESP_BT_MODE_BLE) {
         MY_ESP_ERRCHECK(esp_ble_gap_register_callback(bleGapCallback), TAG, "reg ble gap callback",);
     }
-
-    /* initialize AVRCP controller */
-    esp_avrc_ct_init();
-    esp_avrc_ct_register_callback(avrcCallback);
     mMode = mode;
     return true;
 }
@@ -331,9 +329,11 @@ bool BluetoothStack::doDiscoverDevices(float secs, Discovery* disco)
 #endif
     return ok;
 }
-esp_err_t BluetoothStack::becomeDiscoverableAndConnectable()
+esp_err_t BluetoothStack::becomeDiscoverableAndConnectable(bool enable)
 {
-    return esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+    return enable
+        ? esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE)
+        : esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
 }
 void BluetoothStack::stopDiscovery()
 {

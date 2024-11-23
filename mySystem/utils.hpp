@@ -162,7 +162,7 @@ template<>
     };
 }
 struct MallocFreeDeleter {
-    void operator()(void* ptr) const { ::free(ptr); }
+    void operator()(const void* ptr) const { ::free((void*)ptr); }
 };
 template <typename T>
 using unique_ptr_mfree = std::unique_ptr<T, MallocFreeDeleter>;
