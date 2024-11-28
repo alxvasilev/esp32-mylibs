@@ -38,7 +38,9 @@ public:
               uint16_t uuid = 0;
             } ble;
         };
+#ifdef CONFIG_BT_BLE_ENABLED
         DeviceInfo(esp_ble_gap_cb_param_t::ble_scan_result_evt_param& info);
+#endif
         DeviceInfo(esp_bt_gap_cb_param_t::disc_res_param& info);
         bool operator<(const DeviceInfo& other) const {
             return memcmp(addr, other.addr, sizeof(addr)) < 0;
@@ -54,7 +56,9 @@ public:
         std::string addrString() const { return bda2str(addr); }
     protected:
         void printClassic(const char* tab) const;
+#ifdef CONFIG_BT_BLE_ENABLED
         void printBle(const char* tab) const;
+#endif
     };
     typedef std::set<DeviceInfo, std::less<>> DeviceList;
     struct Discovery {

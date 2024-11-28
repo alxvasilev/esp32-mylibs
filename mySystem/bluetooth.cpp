@@ -15,9 +15,10 @@ static constexpr BluetoothStack& self() { return BtStack; }
 static bool getNameFromEir(uint8_t *eir, char* bdname, uint8_t len);
 static bool getUuidFromEir(uint8_t* val, esp_bt_uuid_t& uuid);
 static const char* gapEventToStr(esp_bt_gap_cb_event_t event);
+#ifdef CONFIG_BT_BLE_ENABLED
 const char* bleAddrTypeToStr(esp_ble_addr_type_t type);
 const char* bleKeyTypeToStr(esp_ble_key_type_t key_type);
-
+#endif
 void BluetoothStack::gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event) {
@@ -267,8 +268,9 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     esp_err_t err;
     esp_bt_controller_config_t cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     cfg.mode = mode;
-    cfg.ble_max_conn = 4;
+    cfg.ble_max_conn = 3;
     cfg.bt_max_acl_conn = 4;
+    cfg.bt_max_sync_conn = 3;
     if ((err = esp_bt_controller_init(&cfg)) != ESP_OK) {
         ESP_LOGE(TAG, "esp_bt_controller_init failed: %s\n", esp_err_to_name(err));
         shutdown();
@@ -297,9 +299,11 @@ bool BluetoothStack::start(esp_bt_mode_t mode, const char* discoName)
     if (mode & ESP_BT_MODE_CLASSIC_BT) {
         MY_ESP_ERRCHECK(esp_bt_gap_register_callback(gapCallback), TAG, "reg bt gap callback",);
     }
+#ifdef CONFIG_BT_BLE_ENABLED
     if (mode & ESP_BT_MODE_BLE) {
         MY_ESP_ERRCHECK(esp_ble_gap_register_callback(bleGapCallback), TAG, "reg ble gap callback",);
     }
+#endif
     mMode = mode;
     return true;
 }
@@ -344,9 +348,11 @@ void BluetoothStack::stopDiscovery()
     if (mode & ESP_BT_MODE_CLASSIC_BT) {
         MY_ESP_ERRCHECK(esp_bt_gap_cancel_discovery(), TAG, "stopping classic discovery",);
     }
+#ifdef CONFIG_BT_BLE_ENABLED
     if (mode & ESP_BT_MODE_BLE) {
         MY_ESP_ERRCHECK(esp_ble_gap_stop_scanning(), TAG, "stopping classic discovery",);
     }
+#endif
     mDiscovery->mode = ESP_BT_MODE_IDLE;
 }
 void BluetoothStack::shutdown()
@@ -413,12 +419,16 @@ void BluetoothStack::DeviceInfo::print(const char *tab) const
     ESP_LOGI(TAG, "%sType: %s", tab, isBle ? "BLE" : "Classic");
     ESP_LOGI(TAG, "%sAddr: %s", tab, bda2str(addr).c_str());
     ESP_LOGI(TAG, "%sRSSI: %d", tab, rssi);
+#ifdef CONFIG_BT_BLE_ENABLED
     if (isBle) {
         printBle(tab);
     }
     else {
         printClassic(tab);
     }
+#else
+    printClassic(tab);
+#endif
 }
 void BluetoothStack::DeviceInfo::printClassic(const char* tab) const
 {
@@ -427,6 +437,7 @@ void BluetoothStack::DeviceInfo::printClassic(const char* tab) const
     const char* uuid = bt.uuid.len ? uuid2str(bt.uuid) : "?";
     ESP_LOGI(TAG, "%sUUID: %s", tab, uuid ? uuid : "null");
 }
+#ifdef CONFIG_BT_BLE_ENABLED
 void BluetoothStack::DeviceInfo::printBle(const char *tab) const
 {
   ESP_LOGI(TAG, "%sUUID: 0x%04x", tab, ble.uuid);
@@ -434,6 +445,7 @@ void BluetoothStack::DeviceInfo::printBle(const char *tab) const
   ESP_LOGI(TAG, "%sUSAGE: %s", tab, magic_enum::enum_name(esp_hid_usage_from_appearance(ble.appearance)).data());
   ESP_LOGI(TAG, "%sADDR_TYPE: '%s'", tab, bleAddrTypeToStr(ble.addrType));
 }
+#endif
 template<class T>
 void BluetoothStack::Discovery::addDevice(T& info)
 {
