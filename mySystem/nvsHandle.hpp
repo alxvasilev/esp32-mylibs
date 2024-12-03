@@ -87,8 +87,18 @@ public:
     esp_err_t readString(const char* key, char* str, size_t& len) {
         return nvs_get_str(mHandle, key, str, &len);
     }
+    int getStringSize(const char* key) {
+        size_t len = 0;
+        auto err = nvs_get_str(mHandle, key, nullptr, &len);
+        return (err == ESP_OK) ? len : -1;
+    }
     esp_err_t readBlob(const char* key, void* data, size_t& len) {
         return nvs_get_blob(mHandle, key, data, &len);
+    }
+    int getBlobSize(const char* key) {
+        size_t len = 0;
+        auto err = nvs_get_blob(mHandle, key, nullptr, &len);
+        return (err == ESP_OK) ? len : -1;
     }
     esp_err_t writeString(const char* key, const char* str) {
         MutexLocker locker(mMutex);
