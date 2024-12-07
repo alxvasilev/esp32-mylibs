@@ -1,195 +1,357 @@
 #ifndef NVS_HANDLE_HPP_INCLUDED
 #define NVS_HANDLE_HPP_INCLUDED
 
+#include <nvs_handle.hpp>
 #include <nvs.h>
 #include "utils.hpp"
+#include <set>
+
+#define MYNVS_LOGD(fmt,...) printf("nvs: " fmt "\n", ##__VA_ARGS__)
+
+class NvsHandle;
+struct CommitItem {
+    enum { kTimerTicksTillCommit = 2 };
+    char* key;
+    nvs::ItemType type = nvs::ItemType::ANY;
+    uint8_t ticks = kTimerTicksTillCommit;
+    inline CommitItem(const char* aKey, nvs::ItemType aType): key(strdup(aKey)), type(aType) {}
+    virtual const void* data() const = 0;
+    virtual int dataSize() const = 0;
+    virtual void update(const void* data, int len) = 0;
+    virtual esp_err_t write(nvs::NVSHandle& nvs) = 0;
+    virtual ~CommitItem()
+    {
+        free(key);
+    }
+};
+
+template <typename T>
+struct ValCommitItem: public CommitItem {
+    T val;
+    ValCommitItem(const char* aKey, const T& aVal) :CommitItem(aKey, nvs::itemTypeOf<T>()), val(aVal) {}
+    const void* data() const override { return &val; }
+    int dataSize() const override { return sizeof(val); }
+    void update(const void *data, int len) override { val = *(T*)data; }
+    virtual esp_err_t write(nvs::NVSHandle& nvs) override { return nvs.set_item(key, val); }
+};
+
+struct BlobCommitItem: public CommitItem {
+    unique_ptr_mfree<uint8_t> mData;
+    int mSize;
+    BlobCommitItem(const char* aKey, const void* data, int size, nvs::ItemType aType)
+    :CommitItem(aKey, aType), mData((uint8_t*)malloc(size)), mSize(size)
+    {
+        myassert(aType == nvs::ItemType::SZ || aType == nvs::ItemType::BLOB_DATA);
+        memcpy(mData.get(), data, size);
+    }
+    const void* data() const override { return mData.get(); }
+    int dataSize() const override { return mSize; }
+    void update(const void *data, int size) override
+    {
+        if (size != mSize) {
+            mData.reset((uint8_t*)realloc(mData.get(), size));
+            mSize = size;
+        }
+        memcpy(mData.get(), data, size);
+    }
+    virtual esp_err_t write(nvs::NVSHandle& nvs) override
+    {
+        return type == nvs::ItemType::SZ
+            ? nvs.set_string(key, (const char*)mData.get())
+            : nvs.set_blob(key, mData.get(), mSize);
+    }
+};
 class NvsHandle
 {
+    friend class CommitItem;
+    friend class NvsIterator;
 protected:
-    nvs_handle mHandle;
+    struct Compare {
+        using is_transparent = std::true_type;
+        bool operator()(const char* a, CommitItem* b) const { return strcmp(a, b->key) < 0; }
+        bool operator()(CommitItem* a, const char* b) const { return strcmp(a->key, b) < 0; }
+        bool operator()(const char* a, const char* b) const { return strcmp(a, b) < 0; }
+        bool operator()(const CommitItem* a, const CommitItem* b) const { return strcmp(a->key, b->key) < 0; }
+    };
     Mutex mMutex;
-    int64_t mTsLastChange = 0;
-    uint32_t mAutoCommitDelayMs = 0;
-    esp_timer_handle_t mCommitTimer = 0;
-    bool mTimerRunning = false;
+    std::unique_ptr<nvs::NVSHandle> mHandle;
+    std::set<CommitItem*, Compare> mCommitItems;
+    TickType_t mTimerPeriod = 0;
+    StaticTimer_t mTimerMem;
+    TimerHandle_t mTimer;
+    unique_ptr_mfree<char> mNsName; // needed only to create an iterator - the NVSHandle doesn't provide access to ns and partition names
+    bool mTimerIsRunning = false;
     static const char* tag() { static const char* sTag = "nvs-handle"; return sTag; }
-public:
-    NvsHandle(const char* nsName, nvs_open_mode mode=NVS_READONLY)
+    esp_err_t readStringOrBlob(const char* key, void* data, int& len, nvs::ItemType type)
     {
-        auto err = nvs_open_from_partition("nvs", nsName, mode, &mHandle);
-        if (err != ESP_OK) {
-            ESP_LOGE(tag(), "Error opening NVS handle: %s", esp_err_to_name(err));
-            mHandle = 0;
-        }
-    }
-    bool isValid() const { return mHandle != 0; }
-    nvs_handle handle() { return mHandle; }
-    virtual ~NvsHandle() {
-        if (mCommitTimer) {
-            esp_timer_stop(mCommitTimer);
-            esp_timer_delete(mCommitTimer);
-            mCommitTimer = nullptr;
-        }
-        commit();
-        nvs_close(mHandle);
-    }
-    /** This starts a periodic timer with period msDelay. The timer handler
-     * checks if the time elapsed since the last write is >= msDelay. If not,
-     * the handler does nothing, leaving the timer running. On the next tick,
-     * if no new writes were performed, the timer handler commits che changes
-     * and stops the timer. Thus, the maximum commit delay is 2 * msDelay
-     */
-    void enableAutoCommit(uint32_t msDelay) {
-        mAutoCommitDelayMs = msDelay;
-        if (mCommitTimer) {
-            if (mTimerRunning) {
-                esp_timer_stop(mCommitTimer);
+        {
+            MutexLocker locker(mMutex);
+            auto it = mCommitItems.find(key);
+            if (it != mCommitItems.end()) {
+                auto& item = **it;
+                if (item.type != type) {
+                    return ESP_ERR_NVS_TYPE_MISMATCH;
+                }
+                auto itemSize = item.dataSize();
+                if (len < itemSize) {
+                    return ESP_ERR_NVS_INVALID_LENGTH;
+                }
+                memcpy(data, item.data(), itemSize);
+                len = itemSize;
+                return ESP_OK;
             }
-        } else {
-            esp_timer_create_args_t args = {};
-            args.dispatch_method = ESP_TIMER_TASK;
-            args.callback = &commitTimerHandler;
-            args.arg = this;
-            args.name = "commitTimer";
-            ESP_ERROR_CHECK(esp_timer_create(&args, &mCommitTimer));
         }
-        mTimerRunning = false;
+        size_t itemSize = 0;
+        auto err = mHandle->get_item_size(type, key, itemSize);
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (len < itemSize) {
+            return ESP_ERR_NVS_INVALID_LENGTH;
+        }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-qualifiers"
+        err = (type == nvs::ItemType::SZ) ? mHandle->get_string(key, (char*)data, (const size_t)len) : mHandle->get_blob(key, data, (const size_t)len);
+#pragma GCC diagnostic pop
+        if (err != ESP_OK) {
+            return err;
+        }
+        len = itemSize;
+        return ESP_OK;
     }
-    void onWrite()
+    int getStringOrBlobSize(const char* key, nvs::ItemType type)
     {
-        mTsLastChange = esp_timer_get_time();
-        if (!mCommitTimer) {
-            return;
+        {
+            MutexLocker locker(mMutex);
+            auto it = mCommitItems.find(key);
+            if (it != mCommitItems.end()) {
+                auto& item = **it;
+                if (item.type != type) {
+                    ESP_LOGW(tag(), "%s: item type doesn't match", __FUNCTION__);
+                    return -2;
+                }
+                return item.dataSize();
+            }
         }
-        if (!mTimerRunning) {
-            ESP_ERROR_CHECK(esp_timer_start_periodic(mCommitTimer, mAutoCommitDelayMs * 1000 / 2));
-            mTimerRunning = true;
+        size_t itemSize = 0;
+        auto err = mHandle->get_item_size(type, key, itemSize);
+        return (err == ESP_OK) ? itemSize : (err == ESP_ERR_NVS_NOT_FOUND ? -1 : -2);
+    }
+    esp_err_t writeStringOrBlob(const char* key, const void* data, int len, nvs::ItemType type, bool writeDirect)
+    {
+        MutexLocker locker(mMutex);
+        if (!mTimerPeriod) {
+            writeDirect = true;
+        }
+        auto it = mCommitItems.find(key);
+        if (it != mCommitItems.end()) {
+            // found in cache
+            MYNVS_LOGD("Cache hit for '%s'", key);
+            if (writeDirect) {
+                mCommitItems.erase(it);
+                delete *it;
+            }
+            else {
+                auto& item = **it;
+                if (item.type != type) {
+                    return ESP_ERR_NVS_TYPE_MISMATCH;
+                }
+                else {
+                    if (type == nvs::ItemType::SZ) {
+                        len = strlen((const char*)data) + 1;
+                    }
+                    MYNVS_LOGD("...updating cached item");
+                    item.update(data, len);
+                    item.ticks = CommitItem::kTimerTicksTillCommit;
+                    heap_caps_check_integrity_all(true);
+                    return ESP_OK;
+                }
+            }
+        }
+        // not found in cache, or deleted it from cache because of writeDirect
+        if (writeDirect) {
+            return (type == nvs::ItemType::SZ)
+                ? mHandle->set_string(key, (const char*)data)
+                : mHandle->set_blob(key, data, len);
+        }
+        else {
+            mCommitItems.insert(new BlobCommitItem(key, data, len, type));
+            startTimer();
+            return ESP_OK;
         }
     }
-    static void commitTimerHandler(void* ctx) {
-        static_cast<NvsHandle*>(ctx)->onCommitTimer();
-    }
-    void onCommitTimer() {
-        MutexLocker locker(mMutex);
-        if (!mTsLastChange) {
-            ESP_LOGI(tag(), "onCommitTimer: no changes");
-            return;
+    void startTimer()
+    {
+        if (!mTimerIsRunning) {
+            xTimerStart(mTimer, portMAX_DELAY);
+            mTimerIsRunning = true;
+            MYNVS_LOGD("Timer start");
         }
-        if ((esp_timer_get_time() - mTsLastChange) / 1000 < mAutoCommitDelayMs) {
-            return;
+    }
+    void stopTimer()
+    {
+        if (mTimerIsRunning) {
+            xTimerStop(mTimer, portMAX_DELAY);
+            mTimerIsRunning = false;
+            MYNVS_LOGD("Timer stop");
         }
-        ESP_LOGI(tag(), "onCommitTimer: commit");
-        esp_timer_stop(mCommitTimer);
-        mTimerRunning = false;
-        mTsLastChange = 0;
-        nvs_commit(mHandle);
     }
-    esp_err_t readString(const char* key, char* str, size_t& len) {
-        return nvs_get_str(mHandle, key, str, &len);
+    uint32_t setAutoCommitOsTicks(uint32_t newPeriod)
+    {
+        if (newPeriod == mTimerPeriod) {
+            return newPeriod;
+        }
+        auto oldPeriod = mTimerPeriod;
+        mTimerPeriod = newPeriod;
+        if (mTimerPeriod) {
+            xTimerChangePeriod(mTimer, mTimerPeriod, portMAX_DELAY);
+        }
+        else {
+            commit();
+        }
+        return oldPeriod;
     }
-    int getStringSize(const char* key) {
-        size_t len = 0;
-        auto err = nvs_get_str(mHandle, key, nullptr, &len);
-        return (err == ESP_OK) ? len : -1;
+    static void onCommitTimer(TimerHandle_t xTimer)
+    {
+        MYNVS_LOGD("onCommitTimer");
+        auto& self = *(NvsHandle*)pvTimerGetTimerID(xTimer);
+        {
+            MutexLocker locker(self.mMutex);
+            auto& items = self.mCommitItems;
+            for (auto it = items.begin(); it != items.end();) {
+                auto item = *it;
+                if (--item->ticks <= 0) {
+                    item->write(*self.mHandle);
+                    it = items.erase(it);
+                    MYNVS_LOGD("Commit: wrote item '%s'", item->key);
+                    delete item;
+                }
+                else {
+                    it++;
+                }
+            }
+            if (self.mCommitItems.empty()) {
+                self.stopTimer();
+            }
+        }
+        self.mHandle->commit();
     }
-    esp_err_t readBlob(const char* key, void* data, size_t& len) {
-        return nvs_get_blob(mHandle, key, data, &len);
+public:
+    NvsHandle(const char* nsName, int commitDly, bool writable) = delete;
+    NvsHandle(const char* nsName, bool writable, int commitDly)
+    : mNsName(strdup(nsName))
+    {
+        esp_err_t err;
+        mHandle.reset(nvs::open_nvs_handle(nsName, writable ? NVS_READWRITE : NVS_READONLY, &err).release());
+        if (err != ESP_OK) {
+            mHandle.reset();
+            ESP_LOGE(tag(), "Error opening NVS handle: %s", esp_err_to_name(err));
+        }
+        mTimerPeriod = (commitDly * configTICK_RATE_HZ + 1) / 2;
+        mTimer = xTimerCreateStatic("nvs-commit", mTimerPeriod ? mTimerPeriod : pdMS_TO_TICKS(10000),
+                 pdTRUE, this, &NvsHandle::onCommitTimer, &mTimerMem);
+        MYNVS_LOGD("Created NvsHandle for namespace '%s' with commit interval %lu ticks", nsName, mTimerPeriod);
     }
-    int getBlobSize(const char* key) {
-        size_t len = 0;
-        auto err = nvs_get_blob(mHandle, key, nullptr, &len);
-        return (err == ESP_OK) ? len : -1;
-    }
-    esp_err_t writeString(const char* key, const char* str) {
+    bool isValid() const { return mHandle != nullptr; }
+    nvs::NVSHandle* handle() { return mHandle.get(); }
+    virtual ~NvsHandle()
+    {
         MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_str(mHandle, key, str);
+        commit(); // stops the timer
+        xTimerDelete(mTimer, portMAX_DELAY);
+        mTimer = nullptr;
+        mHandle.reset();
     }
-    esp_err_t writeBlob(const char* key, void* data, size_t len) {
+    void commit()
+    {
         MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_blob(mHandle, key, data, len);
+        stopTimer();
+        auto& items = mCommitItems;
+        for (auto it = items.begin(); it != items.end(); it++) {
+            auto item = *it;
+            item->write(*mHandle);
+            delete item;
+        }
+        items.clear();
+        mHandle->commit();
     }
-    esp_err_t read(const char* key, uint64_t& val) {
-        return nvs_get_u64(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, int64_t& val) {
-        return nvs_get_i64(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, uint32_t& val) {
-        return nvs_get_u32(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, int32_t& val) {
-        return nvs_get_i32(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, uint16_t& val) {
-        return nvs_get_u16(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, int16_t& val) {
-        return nvs_get_i16(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, uint8_t& val) {
-        return nvs_get_u8(mHandle, key, &val);
-    }
-    esp_err_t read(const char* key, int8_t& val) {
-        return nvs_get_i8(mHandle, key, &val);
-    }
-    esp_err_t write(const char* key, uint64_t val) {
+    void enableAutoCommit(uint32_t delaySec)
+    {
+        auto newPeriod = (delaySec * configTICK_RATE_HZ + 1) / 2;
         MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_u64(mHandle, key, val);
+        setAutoCommitOsTicks(newPeriod);
     }
-    esp_err_t write(const char* key, int64_t val) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_i64(mHandle, key, val);
+    esp_err_t readString(const char* key, char* str, int& len) { return readStringOrBlob(key, str, len, nvs::ItemType::SZ); }
+    int getStringSize(const char* key) { return getStringOrBlobSize(key, nvs::ItemType::SZ); }
+    esp_err_t readBlob(const char* key, void* data, int& len) { return readStringOrBlob(key, data, len, nvs::ItemType::BLOB_DATA); }
+    int getBlobSize(const char* key) { return getStringOrBlobSize(key, nvs::ItemType::BLOB_DATA); }
+    esp_err_t writeString(const char* key, const char* str, bool writeDirect=false) {
+        return writeStringOrBlob(key, str, -1, nvs::ItemType::SZ, writeDirect);
     }
-    esp_err_t write(const char* key, uint32_t val) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_u32(mHandle, key, val);
+    esp_err_t writeBlob(const char* key, void* data, int len, bool writeDirect=false) {
+        return writeStringOrBlob(key, data, len, nvs::ItemType::BLOB_DATA, writeDirect);
     }
-    esp_err_t write(const char* key, int32_t val) {
+    template<typename T>
+    esp_err_t read(const char* key, T& val)
+    {
         MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_i32(mHandle, key, val);
+        auto it = mCommitItems.find(key);
+        if (it != mCommitItems.end()) {
+            auto& item = **it;
+            if (item.type != nvs::itemTypeOf<T>()) {
+                return ESP_ERR_NVS_TYPE_MISMATCH;
+            }
+            val = *(T*)item.data();
+            return ESP_OK;
+        }
+        return mHandle->get_item<T>(key, val);
     }
-    esp_err_t write(const char* key, uint16_t val) {
+    template<typename T>
+    esp_err_t write(const char* key, const T& val, bool writeDirect=false)
+    {
         MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_u16(mHandle, key, val);
-    }
-    esp_err_t write(const char* key, int16_t val) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_i16(mHandle, key, val);
-    }
-    esp_err_t write(const char* key, uint8_t val) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_u8(mHandle, key, val);
-    }
-    esp_err_t write(const char* key, int8_t val) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_set_i8(mHandle, key, val);
+        if (!mTimerPeriod) {
+            writeDirect = true;
+        }
+        auto it = mCommitItems.find(key);
+        if (it != mCommitItems.end()) {
+            if (writeDirect) {
+                mCommitItems.erase(it);
+                delete *it;
+            }
+            auto& item = **it;
+            if (nvs::itemTypeOf<T>() != item.type) {
+                return ESP_ERR_NVS_TYPE_MISMATCH;
+            }
+            item.update(&val, sizeof(val));
+            item.ticks = CommitItem::kTimerTicksTillCommit;
+            return ESP_OK;
+        }
+        if (writeDirect) {
+            return mHandle->set_item(key, val);
+        }
+        bool inserted = mCommitItems.insert(new ValCommitItem<T>(key, val)).second;
+        myassert(inserted);
+        startTimer();
+        return ESP_OK;
     }
     esp_err_t eraseKey(const char* key) {
-        MutexLocker locker(mMutex);
-        onWrite();
-        return nvs_erase_key(mHandle, key);
+        {
+            MutexLocker locker(mMutex);
+            auto it = mCommitItems.find(key);
+            if (it != mCommitItems.end()) {
+                auto item = *it;
+                mCommitItems.erase(it);
+                delete item;
+            }
+        }
+        return mHandle->erase_item(key);
     }
     template <typename T>
     T readDefault(const char* key, T defVal) {
         T val;
         auto err = read(key, val);
         return (err == ESP_OK) ? val : defVal;
-    }
-    void commit()
-    {
-        MutexLocker locker(mMutex);
-        mTsLastChange = 0;
-        nvs_commit(mHandle);
     }
     static const char* valTypeToStr(nvs_type_t type)
     {
@@ -226,7 +388,7 @@ public:
     esp_err_t valToString(const char* key, nvs_type_t type, DynBuffer& buf, bool quoteStr=true)
     {
         if (type == NVS_TYPE_STR) {
-            size_t len = 0;
+            int len = 0;
             auto err = readString(key, nullptr, len);
             if (err != ESP_OK) {
                 return err;
@@ -329,4 +491,55 @@ public:
         }
     }
 };
+
+class NvsIterator: public nvs_entry_info_t {
+protected:
+    NvsHandle& mNvs;
+    nvs_iterator_t mIter;
+    TickType_t mOrigCommitDelay;
+public:
+NvsIterator(NvsHandle& nvs, nvs_type_t type, bool getInfo=true)
+:mNvs(nvs)
+{
+    MutexLocker locker(nvs.mMutex);
+    mOrigCommitDelay = nvs.setAutoCommitOsTicks(0); // disables commit delay and commits current pending items
+    auto err = nvs_entry_find("nvs", nvs.mNsName.get(), type, &mIter);
+    if (err) {
+        mIter = nullptr;
+        ESP_LOGE(nvs.tag(), "Error obtaining iterator: %s", esp_err_to_name(err));
+        return;
+    }
+    if (getInfo) {
+        nvs_entry_info(mIter, this);
+    }
+    else {
+        memset(static_cast<nvs_entry_info_t*>(this), 0, sizeof(nvs_entry_info_t));
+    }
+}
+~NvsIterator()
+{
+    if (mIter) {
+        nvs_release_iterator(mIter);
+        mIter = nullptr;
+    }
+    MutexLocker locker(mNvs.mMutex);
+    mNvs.setAutoCommitOsTicks(mOrigCommitDelay);
+}
+bool next(bool getInfo=true)
+{
+    auto err = nvs_entry_next(&mIter);
+    if (err) {
+        if (mIter) {
+            nvs_release_iterator(mIter);
+        }
+        ESP_LOGW(mNvs.tag(), "nvs_entry_next returned error %s", esp_err_to_name(err));
+        return false;
+    }
+    if (getInfo) {
+        nvs_entry_info(mIter, this);
+    }
+    return true;
+}
+};
+
 #endif
