@@ -39,7 +39,7 @@ struct BlobCommitItem: public CommitItem {
     unique_ptr_mfree<uint8_t> mData;
     int mSize;
     BlobCommitItem(const char* aKey, const void* data, int size, nvs::ItemType aType)
-    :CommitItem(aKey, aType), mData((uint8_t*)malloc(size)), mSize(size)
+    : CommitItem(aKey, aType), mData((uint8_t*)malloc(size ? size : 1)), mSize(size)
     {
         myassert(aType == nvs::ItemType::SZ || aType == nvs::ItemType::BLOB_DATA);
         memcpy(mData.get(), data, size);
@@ -49,7 +49,7 @@ struct BlobCommitItem: public CommitItem {
     void update(const void *data, int size) override
     {
         if (size != mSize) {
-            mData.reset((uint8_t*)realloc(mData.get(), size));
+            mData.reset((uint8_t*)realloc(mData.release(), size ? size : 1));
             mSize = size;
         }
         memcpy(mData.get(), data, size);
@@ -77,7 +77,6 @@ protected:
     std::unique_ptr<nvs::NVSHandle> mHandle;
     std::set<CommitItem*, Compare> mCommitItems;
     TickType_t mTimerPeriod = 0;
-    StaticTimer_t mTimerMem;
     TimerHandle_t mTimer;
     unique_ptr_mfree<char> mNsName; // needed only to create an iterator - the NVSHandle doesn't provide access to ns and partition names
     bool mTimerIsRunning = false;
@@ -135,12 +134,19 @@ protected:
         }
         size_t itemSize = 0;
         auto err = mHandle->get_item_size(type, key, itemSize);
-        return (err == ESP_OK) ? itemSize : (err == ESP_ERR_NVS_NOT_FOUND ? -1 : -2);
+        if (err == ESP_OK) {
+            return itemSize;
+        }
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGE(tag(), "Error getting string/blob size: %s", esp_err_to_name(err));
+            return -2;
+        }
+        return -1;
     }
     esp_err_t writeStringOrBlob(const char* key, const void* data, int len, nvs::ItemType type, bool writeDirect)
     {
         MutexLocker locker(mMutex);
-        if (!mTimerPeriod) {
+        if (!mTimer) {
             writeDirect = true;
         }
         auto it = mCommitItems.find(key);
@@ -175,6 +181,9 @@ protected:
                 : mHandle->set_blob(key, data, len);
         }
         else {
+            if (type == nvs::ItemType::SZ) {
+                len = strlen((const char*)data) + 1;
+            }
             mCommitItems.insert(new BlobCommitItem(key, data, len, type));
             startTimer();
             return ESP_OK;
@@ -183,6 +192,7 @@ protected:
     void startTimer()
     {
         if (!mTimerIsRunning) {
+            myassert(mTimer);
             xTimerStart(mTimer, portMAX_DELAY);
             mTimerIsRunning = true;
             MYNVS_LOGD("Timer start");
@@ -191,6 +201,7 @@ protected:
     void stopTimer()
     {
         if (mTimerIsRunning) {
+            myassert(mTimer);
             xTimerStop(mTimer, portMAX_DELAY);
             mTimerIsRunning = false;
             MYNVS_LOGD("Timer stop");
@@ -204,9 +215,15 @@ protected:
         auto oldPeriod = mTimerPeriod;
         mTimerPeriod = newPeriod;
         if (mTimerPeriod) {
-            xTimerChangePeriod(mTimer, mTimerPeriod, portMAX_DELAY);
+            if (mTimer) {
+                xTimerChangePeriod(mTimer, mTimerPeriod, portMAX_DELAY);
+            }
+            else {
+                createTimer();
+            }
         }
-        else {
+        else { // disable commit delay
+            deleteTimer();
             commit();
         }
         return oldPeriod;
@@ -248,18 +265,38 @@ public:
             ESP_LOGE(tag(), "Error opening NVS handle: %s", esp_err_to_name(err));
         }
         mTimerPeriod = (commitDly * configTICK_RATE_HZ + 1) / 2;
-        mTimer = xTimerCreateStatic("nvs-commit", mTimerPeriod ? mTimerPeriod : pdMS_TO_TICKS(10000),
-                 pdTRUE, this, &NvsHandle::onCommitTimer, &mTimerMem);
+        if (mTimerPeriod) {
+            createTimer();
+        }
+        else {
+            mTimer = nullptr;
+        }
         MYNVS_LOGD("Created NvsHandle for namespace '%s' with commit interval %lu ticks", nsName, mTimerPeriod);
     }
+    void createTimer() {
+        mTimer = xTimerCreate("nvs-commit", mTimerPeriod ? mTimerPeriod : pdMS_TO_TICKS(10000),
+                 pdTRUE, this, &NvsHandle::onCommitTimer);
+    }
+    void deleteTimer() {
+        if (mTimer) {
+            xTimerDelete(mTimer, portMAX_DELAY);
+            mTimer = nullptr;
+            mTimerIsRunning = false;
+        }
+    }
+    operator bool() const { return mHandle != nullptr; }
     bool isValid() const { return mHandle != nullptr; }
     nvs::NVSHandle* handle() { return mHandle.get(); }
     virtual ~NvsHandle()
     {
         MutexLocker locker(mMutex);
-        commit(); // stops the timer
-        xTimerDelete(mTimer, portMAX_DELAY);
-        mTimer = nullptr;
+        if (mHandle) {
+            commit(); // stops the timer
+        }
+        else {
+            stopTimer();
+        }
+        deleteTimer();
         mHandle.reset();
     }
     void commit()
@@ -310,7 +347,7 @@ public:
     esp_err_t write(const char* key, const T& val, bool writeDirect=false)
     {
         MutexLocker locker(mMutex);
-        if (!mTimerPeriod) {
+        if (!mTimer) {
             writeDirect = true;
         }
         auto it = mCommitItems.find(key);
@@ -385,18 +422,17 @@ public:
         buf.appendStr(str.c_str());
         return ESP_OK;
     }
-    esp_err_t valToString(const char* key, nvs_type_t type, DynBuffer& buf, bool quoteStr=true)
+    bool valToString(const char* key, nvs_type_t type, DynBuffer& buf, bool quoteStr=true)
     {
         if (type == NVS_TYPE_STR) {
-            int len = 0;
-            auto err = readString(key, nullptr, len);
-            if (err != ESP_OK) {
-                return err;
+            int len = getStringSize(key);
+            if (len < 0) {
+                return false;
             }
             if (quoteStr) {
                 auto wptr = buf.getAppendPtr(len + 2);
                 *wptr = '"';
-                err = readString(key, wptr + 1, len);
+                auto err = readString(key, wptr + 1, len);
                 if (err) {
                     *wptr = 0;
                     return err;
@@ -405,7 +441,7 @@ public:
                 buf.expandDataSize(len + 1);
             } else {
                 auto wptr = buf.getAppendPtr(len);
-                err = readString(key, wptr, len);
+                auto err = readString(key, wptr, len);
                 if (err != ESP_OK) {
                     *wptr = 0;
                     return err;
@@ -498,48 +534,51 @@ protected:
     nvs_iterator_t mIter;
     TickType_t mOrigCommitDelay;
 public:
-NvsIterator(NvsHandle& nvs, nvs_type_t type, bool getInfo=true)
-:mNvs(nvs)
-{
-    MutexLocker locker(nvs.mMutex);
-    mOrigCommitDelay = nvs.setAutoCommitOsTicks(0); // disables commit delay and commits current pending items
-    auto err = nvs_entry_find("nvs", nvs.mNsName.get(), type, &mIter);
-    if (err) {
-        mIter = nullptr;
-        ESP_LOGE(nvs.tag(), "Error obtaining iterator: %s", esp_err_to_name(err));
-        return;
+    operator bool() const { return mIter != nullptr; }
+    NvsIterator(NvsHandle& nvs, nvs_type_t type, bool getInfo=true)
+    :mNvs(nvs)
+    {
+        MutexLocker locker(nvs.mMutex);
+        mOrigCommitDelay = nvs.setAutoCommitOsTicks(0); // disables commit delay and commits current pending items
+        auto err = nvs_entry_find("nvs", nvs.mNsName.get(), type, &mIter);
+        if (err) {
+            mIter = nullptr;
+            ESP_LOGE(nvs.tag(), "Error obtaining iterator: %s", esp_err_to_name(err));
+            return;
+        }
+        if (getInfo) {
+            nvs_entry_info(mIter, this);
+        }
+        else {
+            memset(static_cast<nvs_entry_info_t*>(this), 0, sizeof(nvs_entry_info_t));
+        }
     }
-    if (getInfo) {
-        nvs_entry_info(mIter, this);
-    }
-    else {
-        memset(static_cast<nvs_entry_info_t*>(this), 0, sizeof(nvs_entry_info_t));
-    }
-}
-~NvsIterator()
-{
-    if (mIter) {
-        nvs_release_iterator(mIter);
-        mIter = nullptr;
-    }
-    MutexLocker locker(mNvs.mMutex);
-    mNvs.setAutoCommitOsTicks(mOrigCommitDelay);
-}
-bool next(bool getInfo=true)
-{
-    auto err = nvs_entry_next(&mIter);
-    if (err) {
+    ~NvsIterator()
+    {
         if (mIter) {
             nvs_release_iterator(mIter);
+            mIter = nullptr;
         }
-        ESP_LOGW(mNvs.tag(), "nvs_entry_next returned error %s", esp_err_to_name(err));
-        return false;
+        MutexLocker locker(mNvs.mMutex);
+        mNvs.setAutoCommitOsTicks(mOrigCommitDelay);
     }
-    if (getInfo) {
-        nvs_entry_info(mIter, this);
+    bool next(bool getInfo=true)
+    {
+        auto err = nvs_entry_next(&mIter);
+        if (err) {
+            if (mIter) {
+                nvs_release_iterator(mIter);
+            }
+            if (err != ESP_ERR_NVS_NOT_FOUND) {
+                ESP_LOGW(mNvs.tag(), "nvs_entry_next returned error %s", esp_err_to_name(err));
+            }
+            return false;
+        }
+        if (getInfo) {
+            nvs_entry_info(mIter, this);
+        }
+        return true;
     }
-    return true;
-}
 };
 
 #endif
