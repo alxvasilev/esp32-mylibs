@@ -466,7 +466,7 @@ public:
             default: return ESP_ERR_INVALID_ARG;
         }
     }
-    esp_err_t writeValueFromString(const char* key, const char* type, const char* strVal)
+    esp_err_t writeValueFromString(const char* key, const char* type, const char* strVal, bool writeDirect=true)
     {
         switch (type[0]) {
             case 'i': {
@@ -477,7 +477,7 @@ public:
                     if (!val && errno != 0) {
                         return ESP_ERR_INVALID_ARG;
                     }
-                    return write(key, val);
+                    return write(key, val, writeDirect);
                 }
                 errno = 0;
                 long val = strtol(strVal, nullptr, 10);
@@ -485,12 +485,15 @@ public:
                     return ESP_ERR_INVALID_ARG;
                 }
                 if (strcmp(sz, "8") == 0) {
-                    return write(key, (int8_t)val);
-                } else if (strcmp(sz, "16") == 0) {
-                    return write(key, (int16_t)val);
-                } else if (strcmp(sz, "32") == 0) {
-                    return write(key, (int32_t)val);
-                } else {
+                    return write(key, (int8_t)val, writeDirect);
+                }
+                else if (strcmp(sz, "16") == 0) {
+                    return write(key, (int16_t)val, writeDirect);
+                }
+                else if (strcmp(sz, "32") == 0) {
+                    return write(key, (int32_t)val, writeDirect);
+                }
+                else {
                     return ESP_ERR_INVALID_ARG;
                 }
             }
@@ -502,7 +505,7 @@ public:
                     if (!val && errno != 0) {
                         return ESP_ERR_INVALID_ARG;
                     }
-                    return write(key, val);
+                    return write(key, val, writeDirect);
                 }
                 errno = 0;
                 unsigned long val = strtoul(strVal, nullptr, 10);
@@ -510,17 +513,20 @@ public:
                     return ESP_ERR_INVALID_ARG;
                 }
                 if (strcmp(sz, "8") == 0) {
-                    return write(key, (uint8_t)val);
-                } else if (strcmp(sz, "16") == 0) {
-                    return write(key, (uint16_t)val);
-                } else if (strcmp(sz, "32") == 0) {
-                    return write(key, (uint32_t)val);
-                } else {
+                    return write(key, (uint8_t)val, writeDirect);
+                }
+                else if (strcmp(sz, "16") == 0) {
+                    return write(key, (uint16_t)val, writeDirect);
+                }
+                else if (strcmp(sz, "32") == 0) {
+                    return write(key, (uint32_t)val, writeDirect);
+                }
+                else {
                     return ESP_ERR_INVALID_ARG;
                 }
             }
             case 's': {
-                return writeString(key, strVal);
+                return writeString(key, strVal, writeDirect);
             }
             default:
                 return ESP_ERR_NOT_SUPPORTED;

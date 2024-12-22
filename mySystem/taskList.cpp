@@ -55,7 +55,7 @@ void TaskList::update(std::string* result)
          return a.ulRunTimeCounter > b.ulRunTimeCounter;
      });
      result->reserve(50 * tasks.size());
-     *result = "name             cpu%  lowstk  prio  core\n";
+     *result = "name             cpu%  lowstk  prio   core mem\n";
      char buf[32];
      for (auto& task: tasks) {
          auto nameLen = strlen(task.pcTaskName);
@@ -63,6 +63,7 @@ void TaskList::update(std::string* result)
                .append(itoa(task.ulRunTimeCounter, buf, 10)).append("\t")
                .append(itoa(task.usStackHighWaterMark, buf, 10)). append("\t")
                .append(itoa(task.uxBasePriority, buf, 10)).append("\t")
-               .append((task.xCoreID < 16) ? itoa(task.xCoreID, buf, 10) : "?")+= "\n";
+               .append((task.xCoreID < 16) ? itoa(task.xCoreID, buf, 10) : "?").append("   ")
+               .append(utils::isInSpiRam(task.pxStackBase) ? "x" : "i") += "\n";
      }
 }
