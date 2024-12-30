@@ -42,7 +42,7 @@ protected:
         } else if (mEvents.get() & kFlagHasSpace) { // empty
             return 0;
         } else { // full
-            myassert(mEvents.get() & kFlagHasData);
+            myassert(mEvents.get() & kFlagHasItems);
             return mBufEnd - mReadPtr;
         }
     }
@@ -68,7 +68,7 @@ protected:
         }
         mDataSize -= size;
         if (mWritePtr == mReadPtr) {
-            mEvents.clearBits(kFlagHasData);
+            mEvents.clearBits(kFlagHasItems);
             mEvents.setBits(kFlagIsEmpty);
         }
         mEvents.setBits(kFlagReadOp|kFlagHasSpace);
@@ -89,7 +89,7 @@ protected:
             bitsToClear |= kFlagHasSpace;
         }
         mEvents.clearBits(bitsToClear);
-        mEvents.setBits(kFlagWriteOp | kFlagHasData);
+        mEvents.setBits(kFlagWriteOp | kFlagHasItems);
     }
     int contigWrite(char* buf, int size)
     {
@@ -332,7 +332,7 @@ public:
     }
     bool hasData() const
     {
-        return ((mEvents.get() & kFlagHasData) != 0);
+        return ((mEvents.get() & kFlagHasItems) != 0);
     }
 };
 

@@ -10,8 +10,8 @@
 class Waitable
 {
 protected:
-    enum: uint8_t { kFlagHasData = 1, kFlagIsEmpty = 2, kFlagHasSpace = 4,
-                    kFlagWriteOp = 8, kFlagReadOp = 16, kFlagStop = 32 };
+    enum: uint8_t { kFlagHasItems = 1, kFlagIsEmpty = 2, kFlagHasSpace = 4,
+                    kFlagWriteOp = 8, kFlagReadOp = 16, kFlagStop = 32, kFlagLast = kFlagStop };
     enum: uint8_t { kReadInProgress = 1, kWriteInProgress = 2 };
     EventGroup mEvents;
     uint8_t mOpInProgress = 0;
@@ -49,9 +49,9 @@ public:
     {
         mEvents.clearBits(kFlagStop);
     }
-    int8_t waitForData(int msTimeout)
+    int8_t waitForItems(int msTimeout)
     {
-        return waitFor(kFlagHasData, msTimeout);
+        return waitFor(kFlagHasItems, msTimeout);
     }
     bool waitForEmpty()
     {
