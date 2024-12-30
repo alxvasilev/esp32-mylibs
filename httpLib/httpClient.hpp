@@ -82,9 +82,9 @@ public:
             }
             int ret = esp_http_client_open(mClient, postDataLen);
             if (ret != ESP_OK) {
-                ESP_LOGW("http", "esp_http_client_open failed with %s", esp_err_to_name(ret));
+                ESP_LOGE("http", "esp_http_client_open failed with %s", esp_err_to_name(ret));
                 close();
-                return ret;
+                return ret > 0 ? -ret : ESP_ERR_HTTP_CONNECT; // ret should be a positive code, but the doc says it could be ESP_FAIL which is -1
             }
             esp_http_client_set_timeout_ms(mClient, mRxTimeout);
             if (postData) {
