@@ -36,16 +36,12 @@ enum: uint8_t {
     ST77XX_MADCTL_MX = 0x40, ///< Right to left
     ST77XX_MADCTL_MV = 0x20, ///< Reverse X and Y
     ST77XX_MADCTL_ML = 0x10, ///< LCD refresh Bottom to top
-    ST77XX_MADCTL_RGB = 0x00, ///< Red-Green-Blue pixel order
+    // other MADCTL params are declared in the header, because they are needed for model configs
     // ILI9341 specific
-    ST77XX_MADCTL_BGR = 0x08, ///< Blue-Green-Red pixel order
-    ST77XX_MADCTL_MH = 0x04,  ///< LCD refresh right to left
-
     ST77XX_RDID1 = 0xDA,
     ST77XX_RDID2 = 0xDB,
     ST77XX_RDID3 = 0xDC,
     ST77XX_RDID4 = 0xDD,
-
     //====
     // Some register settings
     ST7735_MADCTL_BGR = 0x08,
@@ -81,15 +77,18 @@ void St7735Driver::msDelay(uint32_t ms)
     usDelay(ms * 1000);
 }
 
-St7735Driver::St7735Driver(uint8_t spiHost)
-:SpiMaster(spiHost)
-{}
+St7735Driver::St7735Driver(uint8_t spiHost, Model model, Coord width, Coord height, Coord yoffs)
+:SpiMaster(spiHost), mModel(model)
+{
+    const auto& params = DisplayParams::get(model);
+    mWidth = width > 0 ? width : params.width;
+    mHeight = height > 0 ? height : params.height;
+    mYoffs = yoffs >= 0 ? yoffs : params.yoffs;
+}
 
-void St7735Driver::init(Coord width, Coord height, const PinCfg& pins)
+void St7735Driver::init(const PinCfg& pins)
 {
     SpiMaster::init(pins.spi, 3);
-    mWidth = width;
-    mHeight = height;
     mDcPin = pins.dc;
     mRstPin = pins.rst;
 
@@ -151,43 +150,38 @@ void St7735Driver::displayReset()
   msDelay(140);
   sendCmd(ST77XX_SLPOUT);     // Sleep out, booster on
   msDelay(140);
-
-  sendCmd(ST77XX_INVOFF);
-
-//ST7735: sendCmd(ST77XX_MADCTL, (uint8_t)(0x08 | ST77XX_MADCTL_MX | ST77XX_MADCTL_MV))
-  sendCmd(ST77XX_MADCTL, (uint8_t)(0x08 | ST77XX_MADCTL_MV));
-  sendCmd(ST77XX_COLMOD, (uint8_t)0x05);
-
-  sendCmd(ST77XX_CASET, {0x00, 0x00, 0x00, 0x7F});
-  sendCmd(ST77XX_RASET, {0x00, 0x00, 0x00, 0x9F});
-
-  sendCmd(ST77XX_NORON);   // 17: Normal display on, no args, w/delay
+  sendCmd(ST77XX_COLMOD, (uint8_t)0x55);
+  const auto& params = DisplayParams::get(mModel);
+  madctl(params.orient, params.madctlFlags);
+  sendCmd(ST77XX_INVON);
+  sendCmd(ST77XX_NORON);   // Normal display on, no args, w/delay
   clearBlack();
-  sendCmd(ST77XX_DISPON); // 18: Main screen turn on, no args, delay
+  sendCmd(ST77XX_DISPON);  // Main screen turn on, no args, delay
   msDelay(100);
-//setOrientation(kOrientNormal);
 }
 
-void St7735Driver::setOrientation(Orientation orientation)
+void St7735Driver::madctl(Orientation orientation, uint8_t other)
 {
-    sendCmd(0x36); // Memory data access control:
+    uint8_t mode;
     switch (orientation)
     {
         case kOrientCW:
-            std::swap(mWidth, mHeight);
-            sendData(0xA0); // X-Y Exchange,Y-Mirror
+            mode = ST77XX_MADCTL_MV | ST77XX_MADCTL_MX;
             break;
         case kOrientCCW:
-            std::swap(mWidth, mHeight);
-            sendData(0x60); // X-Y Exchange,X-Mirror
+            mode = ST77XX_MADCTL_MV | ST77XX_MADCTL_MY;
             break;
         case kOrient180:
-            sendData(0xc0); // X-Mirror,Y-Mirror: Bottom to top; Right to left; RGB
+            mode = ST77XX_MADCTL_MX | ST77XX_MADCTL_MY;
+            break;
+        case kOrientSwapXY:
+            mode = ST77XX_MADCTL_MV;
             break;
         default:
-            sendData(0x00); // Normal: Top to Bottom; Left to Right; RGB
+            mode = 0;
             break;
     }
+    sendCmd(ST77XX_MADCTL, (uint8_t)(mode | other));
 }
 
 void St7735Driver::setWriteWindow(Coord x, Coord y, Coord w, Coord h)
@@ -198,7 +192,7 @@ void St7735Driver::setWriteWindow(Coord x, Coord y, Coord w, Coord h)
 void St7735Driver::setWriteWindowCoords(Coord x1, Coord y1, Coord x2, Coord y2)
 {
   sendCmd(ST77XX_CASET, (uint32_t)(htobe16((uint16_t)x1) | (htobe16((uint16_t)x2) << 16)));
-  sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)y1) | (htobe16((uint16_t)y2) << 16)));
+  sendCmd(ST77XX_RASET, (uint32_t)(htobe16((uint16_t)y1 + mYoffs) | (htobe16((uint16_t)y2 + mYoffs) << 16)));
   sendCmd(ST77XX_RAMWR); // Memory write
 }
 
