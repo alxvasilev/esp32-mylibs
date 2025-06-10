@@ -13,13 +13,21 @@ class St7735Driver: public SpiMaster
 public:
     typedef int16_t Coord;
     typedef Color565be Color;
-    enum Orientation
-    {
-      kOrientNormal = 0,
-      kOrientCW     = 1,
-      kOrientCCW    = 2,
-      kOrient180    = 3,
-      kOrientSwapXY = 4
+    enum MADCTL: uint8_t {
+        MADCTL_MY = 0x80, ///< Bottom to top
+        MADCTL_MX = 0x40, ///< Right to left
+        MADCTL_MV = 0x20, ///< Reverse X and Y
+        MADCTL_ML = 0x10, ///< LCD refresh Bottom to top
+        MADCTL_RGB = 0x00, ///< Red-Green-Blue pixel order
+        // ILI9341 specific
+        MADCTL_BGR = 0x08, ///< Blue-Green-Red pixel order
+        MADCTL_MH = 0x04,  ///< LCD refresh right to left
+    // orientation convenience definitions
+        kOrientNormal = 0,
+        kOrientCW = MADCTL_MV | MADCTL_MX,
+        kOrientCCW = MADCTL_MV | MADCTL_MY,
+        kOrient180 = MADCTL_MX | MADCTL_MY,
+        kOrientSwapXY = MADCTL_MV
     };
     enum Model: uint8_t {
         kGeneric = 0,
@@ -31,8 +39,8 @@ public:
         Coord width;
         Coord height;
         Coord yoffs;
-        Orientation orient;
-        uint8_t madctlFlags;
+        uint8_t madctl;
+        uint8_t clkDiv;
         static const DisplayParams instances[];
         static const DisplayParams& get(Model model) { return instances[model]; }
     };
@@ -76,7 +84,6 @@ protected:
         setDcPin(1);
         spiSendVal(data);
     }
-    void madctl(Orientation orientation, uint8_t mode);
     void setWriteWindowCoords(Coord XS, Coord YS, Coord XE, Coord YE);
     void clearBlack() { fillRect(0, 0, mWidth, mHeight, 0); }
 public:
@@ -107,21 +114,14 @@ public:
 // A simple typedef will not allow forward declarations
 class ST7735Display: public Gfx<St7735Driver> { using Gfx<St7735Driver>::Gfx; };
 
-// need the MADCTL flags defined for the DisplayParams configs
-enum: uint8_t {
-    ST77XX_MADCTL_RGB = 0x00, ///< Red-Green-Blue pixel order
-    // ILI9341 specific
-    ST77XX_MADCTL_BGR = 0x08, ///< Blue-Green-Red pixel order
-    ST77XX_MADCTL_MH = 0x04,  ///< LCD refresh right to left
-};
 constexpr St7735Driver::DisplayParams St7735Driver::DisplayParams::instances[] = {
     // kGeneric = 0
-    {.width = 320, .height = 240, .yoffs = 0, .orient = St7735Driver::kOrientSwapXY, .madctlFlags = 0},
+    {.width = 320, .height = 240, .yoffs = 0, .madctl = kOrientSwapXY, .clkDiv = 3},
     // k1_44inch128x128 = 1
-    {.width = 128, .height = 128, .yoffs = 0, .orient = St7735Driver::kOrientCW, .madctlFlags = ST77XX_MADCTL_BGR},
+    {.width = 128, .height = 128, .yoffs = 0, .madctl = kOrientCW | MADCTL_BGR, .clkDiv = 3},
     // k2_8inch320x240_GMT028_05 = 2
-    {.width = 320, .height = 240, .yoffs = 0, .orient = St7735Driver::kOrientSwapXY, .madctlFlags = ST77XX_MADCTL_BGR},
+    {.width = 320, .height = 240, .yoffs = 0, .madctl = kOrientSwapXY | MADCTL_BGR, .clkDiv = 3},
     // k1_9inch320x170 = 3
-    {.width = 320, .height = 170, .yoffs = 35, .orient = St7735Driver::kOrientCW, .madctlFlags = 0}
+    {.width = 320, .height = 170, .yoffs = 35, .madctl = kOrientCW, .clkDiv = 2}
 };
 #endif

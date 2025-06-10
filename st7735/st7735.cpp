@@ -32,11 +32,6 @@ enum: uint8_t {
     ST77XX_MADCTL = 0x36,
     ST77XX_COLMOD = 0x3A,
 
-    ST77XX_MADCTL_MY = 0x80, ///< Bottom to top
-    ST77XX_MADCTL_MX = 0x40, ///< Right to left
-    ST77XX_MADCTL_MV = 0x20, ///< Reverse X and Y
-    ST77XX_MADCTL_ML = 0x10, ///< LCD refresh Bottom to top
-    // other MADCTL params are declared in the header, because they are needed for model configs
     // ILI9341 specific
     ST77XX_RDID1 = 0xDA,
     ST77XX_RDID2 = 0xDB,
@@ -88,7 +83,7 @@ St7735Driver::St7735Driver(uint8_t spiHost, Model model, Coord width, Coord heig
 
 void St7735Driver::init(const PinCfg& pins)
 {
-    SpiMaster::init(pins.spi, 3);
+    SpiMaster::init(pins.spi, 2);
     mDcPin = pins.dc;
     mRstPin = pins.rst;
 
@@ -152,36 +147,12 @@ void St7735Driver::displayReset()
   msDelay(140);
   sendCmd(ST77XX_COLMOD, (uint8_t)0x55);
   const auto& params = DisplayParams::get(mModel);
-  madctl(params.orient, params.madctlFlags);
+  sendCmd(ST77XX_MADCTL, params.madctl);
   sendCmd(ST77XX_INVON);
   sendCmd(ST77XX_NORON);   // Normal display on, no args, w/delay
   clearBlack();
   sendCmd(ST77XX_DISPON);  // Main screen turn on, no args, delay
   msDelay(100);
-}
-
-void St7735Driver::madctl(Orientation orientation, uint8_t other)
-{
-    uint8_t mode;
-    switch (orientation)
-    {
-        case kOrientCW:
-            mode = ST77XX_MADCTL_MV | ST77XX_MADCTL_MX;
-            break;
-        case kOrientCCW:
-            mode = ST77XX_MADCTL_MV | ST77XX_MADCTL_MY;
-            break;
-        case kOrient180:
-            mode = ST77XX_MADCTL_MX | ST77XX_MADCTL_MY;
-            break;
-        case kOrientSwapXY:
-            mode = ST77XX_MADCTL_MV;
-            break;
-        default:
-            mode = 0;
-            break;
-    }
-    sendCmd(ST77XX_MADCTL, (uint8_t)(mode | other));
 }
 
 void St7735Driver::setWriteWindow(Coord x, Coord y, Coord w, Coord h)
