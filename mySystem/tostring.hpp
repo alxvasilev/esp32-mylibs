@@ -469,7 +469,7 @@ auto fmtFp(T val, uint8_t minDigits=0, uint8_t minLen=0)
     return FpFmt<T, aFlags>(val, minDigits, minLen);
 }
 
-template <Flags glFlags, Flags _, typename Val>
+template <Flags glFlags=0, Flags _, typename Val>
 char* toString(char *buf, size_t bufsize, FpFmt<Val, _> fp)
 {
     // Get local formatting flags from fp, and merge the global flags from the toString call
