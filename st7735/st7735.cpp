@@ -83,7 +83,7 @@ St7735Driver::St7735Driver(uint8_t spiHost, Model model, Coord width, Coord heig
 
 void St7735Driver::init(const PinCfg& pins)
 {
-    SpiMaster::init(pins.spi, 2);
+    SpiMaster::init(pins.spi, DisplayParams::get(mModel).clkDiv);
     mDcPin = pins.dc;
     mRstPin = pins.rst;
 
