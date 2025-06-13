@@ -234,19 +234,28 @@ KeyValParser::~KeyValParser()
     }
 }
 
-const char* urlGetFile(const char* url)
+Substring urlGetFile(const char* url)
 {
-    const char* lastSlashPos = nullptr;
-    for (;;url++) {
-        if (*url == 0) {
-            break;
-        } else if (*url == '/') {
-            lastSlashPos = url;
+    const char* start = nullptr;
+    while(*url) {
+        if (*url == '/') {
+            start = url;
+        }
+        url++;
+    }
+    if (!start) {
+        return Substring();
+    }
+    start++;
+    auto end = start;
+    for(;;) {
+        char ch = *(end++);
+        if (ch == 0 || ch == '?') {
+            return Substring((char*)start, end - start);
         }
     }
-    return lastSlashPos + 1;
 }
-std::string urlGetHost(const char* url)
+Substring urlGetHost(const char* url)
 {
     const char* start = strstr(url, "://");
     if (start) {
@@ -259,7 +268,7 @@ std::string urlGetHost(const char* url)
     while (*end && *end != '/') {
         end++;
     }
-    return std::string(start, end - start);
+    return Substring((char*)start, end - start);
 }
 std::string jsonStringEscape(const char* str)
 {

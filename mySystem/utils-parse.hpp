@@ -42,6 +42,7 @@ struct Substring
     void trimSpaces();
     long toInt(long defVal, int base=10) const { return strToInt(str, len, defVal, base); }
     float toFloat(float defVal) const { return strToFloat(str, len, defVal); }
+    std::string toStdString() const { return str ? std::string(str, len) : std::string(); }
 };
 
 class KeyValParser
@@ -79,7 +80,7 @@ public:
 long parseInt(const char* str, long defltVal, int base = 10);
 
 std::string jsonStringEscape(const char* str);
-const char* urlGetFile(const char* url);
-std::string urlGetHost(const char* url);
+Substring urlGetFile(const char* url);
+Substring urlGetHost(const char* url);
 
 #endif
