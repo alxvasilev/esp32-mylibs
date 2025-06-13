@@ -79,6 +79,7 @@ public:
 long parseInt(const char* str, long defltVal, int base = 10);
 
 std::string jsonStringEscape(const char* str);
-const char* getUrlFile(const char* url);
+const char* urlGetFile(const char* url);
+std::string urlGetHost(const char* url);
 
 #endif

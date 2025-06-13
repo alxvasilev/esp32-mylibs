@@ -234,7 +234,7 @@ KeyValParser::~KeyValParser()
     }
 }
 
-const char* getUrlFile(const char* url)
+const char* urlGetFile(const char* url)
 {
     const char* lastSlashPos = nullptr;
     for (;;url++) {
@@ -246,7 +246,21 @@ const char* getUrlFile(const char* url)
     }
     return lastSlashPos + 1;
 }
-
+std::string urlGetHost(const char* url)
+{
+    const char* start = strstr(url, "://");
+    if (start) {
+        start += 3;
+    }
+    else {
+        start = url;
+    }
+    auto end = start + 1;
+    while (*end && *end != '/') {
+        end++;
+    }
+    return std::string(start, end - start);
+}
 std::string jsonStringEscape(const char* str)
 {
     std::string buf;
