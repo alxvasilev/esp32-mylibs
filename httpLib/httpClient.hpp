@@ -1,6 +1,6 @@
 #ifndef MY_HTTP_CLIENT_HPP
 #define MY_HTTP_CLIENT_HPP
-
+#include <esp_log.h>
 #include <esp_http_client.h>
 #include <buffer.hpp>
 #include <utility>

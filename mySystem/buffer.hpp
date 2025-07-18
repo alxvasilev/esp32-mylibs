@@ -2,10 +2,11 @@
 #define BUFFER_HPP_INCLUDED
 
 #include <stdarg.h>
-#include <esp_log.h>
 #include <memory>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <assert.h>
 
 class DynBuffer
 {
@@ -90,7 +91,7 @@ public:
         }
         auto newBuf = mBuf ? (char*)realloc(mBuf, newSize) : (char*)malloc(newSize);
         if (!newBuf) {
-            ESP_LOGE("BUF", "reserve: Out of memory allocating %d bytes for buffer", newSize);
+            printf("DynBuffer::reserve: Out of memory allocating %d bytes for buffer", newSize);
             abort();
             return;
         }
@@ -161,15 +162,21 @@ public:
         mBuf[mDataSize++] = ch;
         return *this;
     }
-    DynBuffer& appendStr(const char* str, bool nullTerminate=false)
+    DynBuffer& appendStr(const char* str, int len, bool nullTerminate=false)
     {
-        auto len = strlen(str);
         if (len) {
+            if ((mDataSize > 0) && (mBuf[mDataSize-1] == 0)) {
+                mDataSize--; // remove previous null termination
+            }
             append(str, nullTerminate ? len+1 : len);
         } else if (nullTerminate) {
             appendChar(0);
         }
         return *this;
+    }
+    DynBuffer& appendStr(const char *str, bool nullTerminate=false)
+    {
+        return appendStr(str, strlen(str), nullTerminate);
     }
     void nullTerminate()
     {
@@ -222,7 +229,8 @@ public:
             } else {
                 result.appendChar('\\');
                 char buf[5];
-                result.appendStr(itoa(ch, buf, 16));
+                ::snprintf(buf, sizeof(buf), "%x", ch);
+                result.appendStr(buf);
             }
         }
         result.nullTerminate();
