@@ -1,7 +1,7 @@
 #ifndef LCD_DISPLAY_HPP_INCLUDED
 #define LCD_DISPLAY_HPP_INCLUDED
 #include <gfx.hpp>
-#include <textRender.h>
+#include <textRender.hpp>
 #include <fontRenderColor.hpp>
 #include <fontRenderMono.hpp>
 #include <type_traits>
