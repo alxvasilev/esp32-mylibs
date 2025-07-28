@@ -11,6 +11,7 @@
 class St7735Driver: public SpiMaster
 {
 public:
+    static constexpr bool isMono = false;
     typedef int16_t Coord;
     typedef Color565be Color;
     enum MADCTL: uint8_t {
@@ -96,23 +97,23 @@ public:
     void setPixel(Coord x, Coord y, Color color);
     void setWriteWindow(Coord x, Coord y, Coord w, Coord h);
     void fillRect(Coord x, Coord y, Coord w, Coord h, Color color);
-    void dmaMountFrameBuffer(const FrameBuffer<Color>& fb) {
+    void dmaMountFrameBuffer(const FrameBufferColor<Color>& fb) {
         dmaMountBuffer((const char*)fb.data(), fb.byteSize());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data);
-    void dmaBlit(Coord x, Coord y, const FrameBuffer<Color>& fb) {
+    void dmaBlit(Coord x, Coord y, const FrameBufferColor<Color>& fb) {
         dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.data());
     }
-    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const FrameBuffer<Color>& fb) {
+    void dmaBlit(Coord x, Coord y, Coord w, Coord h, const FrameBufferColor<Color>& fb) {
         fbassert(w * h * sizeof(Color) <= fb.byteSize());
         dmaBlit(x, y, w, h, (const char*)fb.data());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h);
 };
 
-#include "gfx.hpp"
+#include "lcd.hpp"
 // A simple typedef will not allow forward declarations
-class ST7735Display: public Gfx<St7735Driver> { using Gfx<St7735Driver>::Gfx; };
+class ST7735Display: public Lcd<St7735Driver> {public: using Lcd<St7735Driver>::Lcd; };
 
 constexpr St7735Driver::DisplayParams St7735Driver::DisplayParams::instances[] = {
     // kGeneric = 0

@@ -13,9 +13,10 @@
 
 
 template <class C>
-class FrameBuffer
+class FrameBufferColor
 {
 public:
+    static constexpr const bool isMono = false;
     typedef C Color;
 protected:
     typedef int16_t Coord;
@@ -29,11 +30,11 @@ protected:
     Coord mWinWidth = 0;
     Coord mLineSkip = 0;
 public:
-    FrameBuffer(Coord width, Coord height, int allocFlags)
+    FrameBufferColor(Coord width, Coord height, int allocFlags)
         : mWidth(width), mHeight(height),
           mBuf((Color*)heap_caps_malloc(width * height * sizeof(Color), allocFlags)),
           mBufEnd(mBuf.get() + width * height) {}
-    FrameBuffer(): mWidth(0), mHeight(0), mBufEnd(nullptr) {}
+    FrameBufferColor(): mWidth(0), mHeight(0), mBufEnd(nullptr) {}
     // interface used by Gfx
     Coord width() const { return mWidth; }
     Coord height() const { return mHeight; }
