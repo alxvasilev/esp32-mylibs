@@ -27,6 +27,7 @@ struct Font
         code -= 32;
         return (code >= charCount) ? -1 : code;
     }
+    /* Returns the char width in code, as an uint8_t */
     const uint8_t* getCharData(uint8_t& code) const
     {
         int idx = codeToIdx(code);

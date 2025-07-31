@@ -184,6 +184,10 @@ void St7735Driver::fillRect(Coord x, Coord y, Coord w, Coord h, Color color)
         num -= txCount;
     } while (num > 0);
 }
+void St7735Driver::fill(Color color)
+{
+    fillRect(0, 0, width(), height(), color);
+}
 void St7735Driver::setPixel(Coord x, Coord y, Color color)
 {
     setWriteWindowCoords(x, y, x, y);

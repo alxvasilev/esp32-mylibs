@@ -13,19 +13,38 @@ void skipCharsX(int n) { this->cursorX += textWidth(n); }
 using FontRender::FontRender;
 void puts(const char* str, uint8_t flags=0)
 {
-    char ch;
-    while((ch = *(str++))) {
+    char ch = *str;
+    while(ch) {
         if (ch == '\n') {
             newLine();
-        } else if (ch != '\r') {
-            this->putc(ch, flags);
         }
+        else if (ch != '\r') {
+            auto w = this->putc(ch, flags);
+            if (w > 0) {
+                this->cursorX += w;
+            }
+            else if (w == 0) { // need newline
+                if (flags & this->kFlagNoAutoNewline) {
+                    return;
+                }
+                newLine(); // retry same char
+                continue;
+            }
+            else if (w == std::numeric_limits<int>::min()) { // error
+                return;
+            }
+            else if (w < 0) {
+                this->cursorX -= w; // partial
+                return;
+            }
+        }
+        ch = *(++str);
     }
 }
 void newLine()
 {
     this->cursorX = 0;
-    this->cursorY += (this->mFont->height + this->mFont->lineSpacing) * this->mFontScale;
+    this->cursorY += this->charHeight();
 }
 void nputs(const char* str, int len, uint8_t flags=0)
 {
@@ -38,7 +57,7 @@ void nputs(const char* str, int len, uint8_t flags=0)
         if (ch == '\n') {
             newLine();
         } else if (ch != '\r') {
-            putc(ch, flags);
+            this->putc(ch, flags);
         }
     }
 }

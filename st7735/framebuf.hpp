@@ -100,6 +100,11 @@ public:
             pixPtr += lineSkip;
         }
     }
+    void fill(Color color) {
+        for (Color* ptr = mBuf.get(); ptr < mBufEnd; ptr++) {
+            *ptr = color;
+        }
+    }
 };
 
 #endif

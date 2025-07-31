@@ -9,15 +9,19 @@
  * A complete display class has several layers.
  * The bottom one is the Driver, which understands the display protocol and may provide
  * frame buffering and DMA transactions. The driver class itself may take additional template params,
- * i.e. hardware port, pin config, etc. It may also be a virtual framebuffer, which doesn't have
+ * i.e. hardware port, pin config, etc. It can also take constructor params, which will be forwarded
+ * throughout the whole inheritance chain. It may also be a virtual framebuffer, which doesn't have
  * a physically connected display but only operates on a RAM framebuffer.
  * The Driver exposes the basic set of drawing function that are the base of all other: setting a pixel,
  * drawing a horizontal and a vertical line, filling a rectangle.
  * The second layer - the Gfx class it provides more advanced drawing functions and cursor positioning.
  * The third layer - the FontRenderXXX class provides font character rendering. For performance, it is
- * dependent on whether pixels are represented as bits is video memory, or a words, and their layout in
- * memory. Hence, there are several FontRender classes depending on the underlying Display. The driver
+ * dependent on whether pixels are represented as bits or words is video memory, and their layout.
+ * Hence, there are several FontRender classes depending on the underlying Display. The driver
  * reports the type required via the Driver::isMono member.
+ * NOTE: There are some assumptions about the monochromatic display driver. It should have a frame
+ * buffer in RAM, and should provide access to it, so the font renderer can do direct bit
+ * operations on the pixel bits, avoiding the standard pixel set methods, which would be much slower.
  * The fourth layer - the TextRender class provides text rendering, handling things like text centering,
  * newlines, text size estimation, etc.
  */

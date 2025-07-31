@@ -97,6 +97,7 @@ public:
     void setPixel(Coord x, Coord y, Color color);
     void setWriteWindow(Coord x, Coord y, Coord w, Coord h);
     void fillRect(Coord x, Coord y, Coord w, Coord h, Color color);
+    void fill(Color color);
     void dmaMountFrameBuffer(const FrameBufferColor<Color>& fb) {
         dmaMountBuffer((const char*)fb.data(), fb.byteSize());
     }

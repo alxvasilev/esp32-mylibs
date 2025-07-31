@@ -4,7 +4,7 @@
 #include <algorithm>
 #include "stdfonts.hpp"
 #include <string.h>
-
+#include <limits>
 template <class GfxDisplay>
 class FontRenderColor: public GfxDisplay
 {
@@ -115,19 +115,19 @@ void blitMonoVscan(Coord sx, Coord sy, Coord w, Coord h,
         }
     }
 }
-bool putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
+Coord putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
 {
     if (!mFont) {
-        return false;
+        return std::numeric_limits<int>::min();
     }
-    if (this->cursorY > this->height()) {
-        return false;
+    if (this->cursorY >= this->height() || this->cursorX >= this->width()) {
+        return std::numeric_limits<int>::min();
     }
     uint8_t width = ch;
     // returns char width via the charcode argument
     auto charData = mFont->getCharData(width);
     if (!charData) {
-        return false;
+        return std::numeric_limits<int>::min();
     }
     auto height = mFont->height * mFontScale;
     int charSpc = mFont->charSpacing;
@@ -136,19 +136,19 @@ bool putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
             // check if we still need to draw the spacing after that invisible char
             // needed for easier handling of scrolling text
             auto spacingToDraw = width + charSpc - startCol;
-            if (spacingToDraw > charSpc) {
-                return false;
+            if (spacingToDraw > charSpc) { // FIXME: Shouldn't it be spacingToDraw <= 0
+                return 0;
             }
             spacingToDraw *= mFontScale; // but column is within char spacing
-            if (this->cursorX + spacingToDraw > this->width()) {
-                spacingToDraw = this->width() - this->cursorX;
-                if (spacingToDraw <= 0) {
-                    return false;
-                }
+            Coord remain = this->width() - this->cursorX;
+            if (spacingToDraw > remain) {
+                this->clear(this->cursorX, this->cursorY, remain, height);
+                return -remain;
             }
-            this->clear(this->cursorX, this->cursorY, spacingToDraw, height);
-            this->cursorX += spacingToDraw;
-            return true;
+            else {
+                this->clear(this->cursorX, this->cursorY, spacingToDraw, height);
+                return spacingToDraw;
+            }
         }
         auto byteHeight = (mFont->height + 7) / 8;
         charData += byteHeight * startCol; // skip first columns
@@ -157,28 +157,25 @@ bool putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
     width *= mFontScale;
     charSpc *= mFontScale;
 
-    // we need to calculate new cursor X in order to determine if we
-    // should increment cursorY. That's why we do the newCursorX gymnastics
-    Coord newCursorX = this->cursorX + width + charSpc;
-    if (newCursorX > this->width()) {
+    Coord remain = this->width() - this->cursorX;
+    int ret;
+    if (width > remain) {
         if (this->cursorX < this->width() && (flags & kFlagAllowPartial)) {
-            newCursorX = this->width();
-        } else {
-            if (flags & kFlagNoAutoNewline) {
-                return false;
-            }
-            this->cursorX = 0;
-            this->cursorY += height + mFont->lineSpacing * mFontScale;
-            newCursorX = width + charSpc;
+            ret = -remain;
         }
+        else {
+            return 0;
+        }
+    }
+    else {
+        ret = width + charSpc;
     }
     if (mFont->isVertScan) {
         blitMonoVscan(this->cursorX, this->cursorY, width, height, charData, charSpc, mFontScale);
     } else {
         blitMonoHscan(this->cursorX, this->cursorY, width, height, charData, charSpc, mFontScale);
     }
-    this->cursorX = newCursorX;
-    return true;
+    return ret;
 }
 };
 #endif
