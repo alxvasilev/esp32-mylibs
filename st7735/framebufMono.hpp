@@ -1,7 +1,7 @@
 /**
   LCD Graphics and text layer
   @author: Alexander Vassilev
-  @copyright BSD License
+  @copyright GPL v3 License
  */
 #ifndef GFX_HPP_INCLUDED
 #define GFX_HPP_INCLUDED
