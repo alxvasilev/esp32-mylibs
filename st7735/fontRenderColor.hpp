@@ -12,8 +12,10 @@ public:
     enum DrawFlags
     {
         kFlagNoAutoNewline = 1,
-        kFlagAllowPartial = 2
+        kFlagAllowPartial = 2,
+        kFlagNoBackground = 4
     };
+    static constexpr const int kPutcError = std::numeric_limits<int>::min();
 protected:
     typedef GfxDisplay::Coord Coord;
     const Font* mFont = &Font_5x7;
@@ -24,9 +26,9 @@ void setFont(const Font& font, int8_t scale=1) { mFont = &font; mFontScale = sca
 void setFontScale(int8_t scale) { mFontScale = scale; }
 Coord fontHeight() const { return mFont->height * mFontScale; }
 Coord fontWidth() const { return mFont->width * mFontScale; }
-int8_t charWidth(char ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * mFontScale; }
-int8_t charHeight() const { return (mFont->height + mFont->lineSpacing) * mFontScale; }
-int8_t charsPerLine() const { return this->width() / charWidth(); }
+Coord charWidth(char ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * mFontScale; }
+Coord lineHeight() const { return (mFont->height + mFont->lineSpacing) * mFontScale; }
+Coord charsPerLine() const { return this->width() / charWidth(); }
 const Font* font() const { return mFont; }
 void blitMonoHscan(Coord sx, Coord sy, Coord w, Coord h,
     const uint8_t* binData, int8_t bgSpacing, int scale)
@@ -115,19 +117,19 @@ void blitMonoVscan(Coord sx, Coord sy, Coord w, Coord h,
         }
     }
 }
-Coord putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
+int putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
 {
     if (!mFont) {
-        return std::numeric_limits<int>::min();
+        return kPutcError;
     }
     if (this->cursorY >= this->height() || this->cursorX >= this->width()) {
-        return std::numeric_limits<int>::min();
+        return kPutcError;
     }
     uint8_t width = ch;
     // returns char width via the charcode argument
     auto charData = mFont->getCharData(width);
     if (!charData) {
-        return std::numeric_limits<int>::min();
+        return kPutcError;
     }
     auto height = mFont->height * mFontScale;
     int charSpc = mFont->charSpacing;

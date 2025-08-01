@@ -30,11 +30,11 @@ void puts(const char* str, uint8_t flags=0)
                 newLine(); // retry same char
                 continue;
             }
-            else if (w == std::numeric_limits<int>::min()) { // error
+            else if (w == this->kPutcError) {
                 return;
             }
             else if (w < 0) {
-                this->cursorX -= w; // partial
+                this->cursorX -= w; // partial or no room for spacing at end
                 return;
             }
         }
@@ -44,7 +44,7 @@ void puts(const char* str, uint8_t flags=0)
 void newLine()
 {
     this->cursorX = 0;
-    this->cursorY += this->charHeight();
+    this->cursorY += this->lineHeight();
 }
 void nputs(const char* str, int len, uint8_t flags=0)
 {

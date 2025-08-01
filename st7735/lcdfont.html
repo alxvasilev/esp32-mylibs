@@ -769,7 +769,7 @@ function parseFontCSource(contents)
             if (!answer) {
                 return;
             }
-            if (answer === "y" || anwer === "Y") {
+            if (answer === "y" || answer === "Y") {
                 isVscan = true;
                 break;
             } else if (answer === "n" || answer === "N") {
@@ -866,28 +866,12 @@ function saveAsVScan() {
     let lastModel = gFont.models[gFont.models.length-1];
     for (let model of gFont.models) {
         src += "\n";
-        for (let col = 0; col < model.width; col++) {
-            let byte = 0;
-            let shift = 0;
-            let row;
-            for (row = 0; row < model.height; row++) {
-                byte |= ((model.rows[row][col]) ? 1 : 0) << shift;
-                if (++shift > 7) {
-                    if (col > 0 || row > 7) {
-                        src += " ";
-                    } else {
-                        src += "    ";
-                    }
-                    src += byteToHex(byte) + ",";
-                    shift = 0;
-                    byte = 0;
-                }
-            }
-            if (shift > 0) { // we have uncommitted byte
-                if (col > 0 || row > 7) {
-                        src += " ";
-                } else {
-                    src += "    ";
+        for (row = 0; row < model.height; row += 8) {
+            const maxBit = Math.min(model.height - row, 8);
+            for (let col = 0; col < model.width; col++) {
+                let byte = 0;
+                for (let bit = 0; bit < maxBit; bit++) {
+                    byte |= ((model.rows[row + bit][col]) ? 1 : 0) << bit;
                 }
                 src += byteToHex(byte) + ",";
             }

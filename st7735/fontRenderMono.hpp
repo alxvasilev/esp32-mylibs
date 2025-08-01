@@ -7,7 +7,7 @@
 #define FONT_RENDER_MONO_HPP_INCLUDED
 
 #include <font.hpp>
-#include <algorithm> //for std::swap
+#include <limits>
 #include <lcdAssert.hpp>
 
 template <class DisplayGfx>
@@ -15,153 +15,143 @@ class FontRenderMono: public DisplayGfx
 {
 protected:
     const Font* mFont = nullptr;
-    uint8_t mFontScale = 1;
 public:
     enum DrawFlags
     {
         kFlagNoAutoNewline = 1,
-        kFlagAllowPartial = 2
+        kFlagAllowPartial = 2,
+        kFlagNoBackground = 4
     };
     typedef int16_t Coord;
+    static constexpr const int kPutcError = std::numeric_limits<int>::min();
     const Font* font() const { return mFont; }
-    uint8_t fontScale() const { return mFontScale; }
-    void setFont(const Font& font, uint8_t scale=1) { mFont = &font; mFontScale = scale; }
-    void setFontScale(uint8_t scale) { mFontScale = scale; }
-    Coord fontHeight() const { return mFont->height * fontScale(); }
-    Coord fontWidth() const { return mFont->width * fontScale(); }
-    int8_t charWidth(char ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * fontScale(); }
-    int8_t charHeight() const { return (mFont->height + mFont->lineSpacing) * fontScale(); }
+    uint8_t fontScale() const { return 1; }
+    void setFont(const Font& font, uint8_t scale=1) { mFont = &font; }
+    void setFontScale(uint8_t scale) {}
+    Coord fontHeight() const { return mFont->height; }
+    Coord fontWidth() const { return mFont->width; }
+    int8_t charWidth(char ch=0) const { return mFont->charWidth(ch) + mFont->charSpacing; }
+    int8_t lineHeight() const { return mFont->height + mFont->lineSpacing; }
     int8_t charsPerLine() const { return this->width() / charWidth(); }
     using DisplayGfx::DisplayGfx;
-Coord putc(char ch, int flags=0)
+int putc(char ch, int flags)
 {
-    lcdassert(mFont);
-    Coord xLim=10000;
-    uint8_t charW = ch;
-    uint8_t symPages = mFont->byteHeightOrWidth;
-    uint8_t symLastPage = symPages - 1;
-    const uint8_t* sym = mFont->getCharData(charW);
-    uint8_t* bufDest = this->frameBuf() + (this->cursorY >> 3) * this->width() + this->cursorX;
-    if (this->cursorY >= this->height())
-    {
+    if (this->cursorY >= this->height()) {
+        return kPutcError;
+    }
+    int remain = this->width() - this->cursorX;
+    if (remain <= 0) {
         return 0;
     }
-    xLim = std::min(this->width(), xLim);
-    uint8_t writeWidth;
-    if (this->cursorX + charW <= xLim) {
-        writeWidth = charW;
+    uint8_t charW = ch;
+    const uint8_t* sym = mFont->getCharData(charW);
+    if (!sym) {
+        return kPutcError;
     }
-    else {
-        if (this->cursorX >= xLim) {
-            return 0;
-        }
-        writeWidth = xLim - this->cursorX;
-    }
-    uint8_t vOfs = (this->cursorY & 0x07); //offset within the vertical byte
-    if (vOfs == 0) {
-        for (int page = 0; page <= symLastPage; page++) {
-            uint8_t* dest = bufDest + page * this->width();
-            const uint8_t* src = sym + page * charW;
-            const uint8_t* srcEnd = src + writeWidth;
-            uint8_t wmask = (page < symLastPage) ? 0xff : 0xff >> (8 - mFont->height); // FIXME
-            for (; src < srcEnd; src++, dest++) {
-                *dest = (*dest & ~wmask) | ((this->mFgColor ? (*src) : (~*src)) & wmask);
-            }
-        }
-    }
-    else
-    {
-        uint8_t displayFirstPageHeight = 8 - vOfs; // write height of first display page
-        uint8_t firstLineFullMask = 0xff << vOfs; //masks the bits above the draw line
-        bool onlyFirstLine = mFont->height <= displayFirstPageHeight;
-        uint8_t wmask = onlyFirstLine //write mask
-             ? ((1 << mFont->height) - 1) << vOfs //the font doesn't span to line bottom, if font height is small
-             : firstLineFullMask; //font spans to bottom of line
-        uint8_t* wptr = bufDest; //write pointer
-        uint8_t* wend = wptr+writeWidth;
-        const uint8_t* rptr = sym; //read pointer
-        if (this->mFgColor) {
-            while(wptr < wend) {
-                uint8_t b = *wptr;
-                b = (b &~ wmask) | ((*(rptr++) << vOfs) & wmask);
-                *(wptr++) = b;
-            }
-        }
-        else
-        {
-            while(wptr < wend) {
-                uint8_t b = *wptr;
-                b = (b &~ wmask) | (((~*(rptr++)) << vOfs) & wmask);
-                *(wptr++) = b;
-            }
-        }
-        if (onlyFirstLine)
-        {
-            return writeWidth + mFont->charSpacing; //we don't span on the next byte (page)
-        }
-        auto bufEnd = this->frameBuf() + this->frameBufSize();
-        uint8_t wpage = 1;
-        wptr = bufDest + wpage * this->width();
-        wend = wptr + writeWidth;
-        if (wend > bufEnd) {
-            return writeWidth + mFont->charSpacing;
-        }
-
-        uint8_t secondPageMask = 0xff << displayFirstPageHeight; // low vOfs bits set
-        uint8_t symLastPageHeight = mFont->height % 8;
-        if (symLastPageHeight == 0) {
-            symLastPageHeight = mFont->height;
-        }
-        uint8_t symLastPageToFirstDisplayPageMask;
-        uint8_t symLastPageToSecondDisplayPageMask;
-        if (symLastPageHeight >= displayFirstPageHeight) {
-            symLastPageToFirstDisplayPageMask = firstLineFullMask;
-            symLastPageToSecondDisplayPageMask = 0xff >> (8-(symLastPageHeight-displayFirstPageHeight));
+    uint8_t* wPage = this->frameBuf() + (this->cursorY >> 3) * this->width() + this->cursorX;
+    const uint8_t* rPage = sym;
+    int drawW;
+    if (charW > remain) {
+        if (flags & kFlagAllowPartial) {
+            drawW = remain;
         }
         else {
-            symLastPageToFirstDisplayPageMask = firstLineFullMask & (0xff >> (8-symLastPageHeight));
-            symLastPageToSecondDisplayPageMask = 0x00;
-        }
-
-        for (int8_t rpage = 0; rpage <= symLastPage; rpage++) {
-            rptr = sym + rpage * charW;
-            while(wptr < wend) {
-                uint8_t b = *wptr;
-                if (wpage > rpage) {
-                    // we are drawing the bottom part of the symbol page,
-                    // to the top part of the next display page.
-                    uint8_t srcByte = this->mFgColor
-                        ? (*(rptr++) >> displayFirstPageHeight)
-                        : ((~*(rptr++)) >> displayFirstPageHeight);
-                    wmask = (rpage < symLastPage)
-                       ? secondPageMask // not the last symbol page, so copy all 8 bits
-                       : symLastPageToSecondDisplayPageMask; //the last symbol page
-
-                    b = (b & ~wmask) | (srcByte & wmask);
-                }
-                else {
-                    // we are drawing the top part of the symbol page,
-                    // to the bottom part of the same display page
-                    wmask = (rpage < symLastPage)
-                       ? firstLineFullMask // not the last symbol page, so copy all 8 bits
-                       : symLastPageToFirstDisplayPageMask; //the last symbol page
-                    uint8_t srcByte = this->mFgColor
-                        ? ((*(rptr++) << vOfs))
-                        : ((~*(rptr++) << vOfs));
-                    b = (b & ~wmask) | srcByte;
-                    wpage++;
-                    wptr = bufDest + wpage * this->width();
-                    wend = wptr + writeWidth;
-                    if (wend > bufEnd)
-                    {
-                        return writeWidth + mFont->charSpacing;
-                    }
-                }
-                *(wptr++) = b;
-            }
+            return 0;
         }
     }
-    return writeWidth + mFont->charSpacing;
+    else {
+        drawW = charW;
+    }
+    int fontHeight = this->fontHeight();
+    // read a font vertical byte, mask it, and shift it, and bitwise-merge it to display memory
+    int shift = (this->cursorY & 0x07);
+    bool shiftLeft = true;
+    int totalRows = std::min(fontHeight, this->height() - this->cursorY);
+    int nRows = std::min(totalRows, 8 - shift);
+    uint8_t mask = 0xff >> (8 - nRows);
+    auto rend = rPage + drawW;
+    auto blitFactory = this->mFgColor
+        ? ((flags & kFlagNoBackground) ? &blitFuncFactory<true, true> : &blitFuncFactory<true, false>)
+        : ((flags & kFlagNoBackground) ? &blitFuncFactory<false, true> : &blitFuncFactory<false, false>);
+    for(;;) {
+        auto blitFunc = blitFactory(shiftLeft);
+        blitFunc(rPage, wPage, rend, mask, shift);
+        int bitPosSrc = (nRows & 0x07);
+        int availSrc = 8 - bitPosSrc;
+        int bitPosDest = ((this->cursorY + nRows) & 0x07);
+        int availDest = 8 - bitPosDest;
+        int rowsRemain = totalRows - nRows;
+        if (rowsRemain <= 0) {
+            break;
+        }
+        if (availSrc == 8) {
+            rPage += charW; // next font page
+            rend = rPage + drawW;
+        }
+        if (availDest == 8) {
+            wPage += this->width();
+        }
+        int avail = std::min(std::min(availSrc, availDest), rowsRemain);
+        nRows += avail;
+        mask = (0xff >> (8 - avail)) << bitPosSrc;
+        shift = bitPosDest - bitPosSrc;
+        if (shift < 0) {
+            shiftLeft = false;
+            shift = -shift;
+        }
+        else {
+            shiftLeft = true;
+        }
+    }
+    if (drawW < charW) {
+        return -drawW;
+    }
+    remain -= drawW;
+    if (flags & kFlagNoBackground) {
+        return (remain < mFont->charSpacing) ? -remain : drawW + mFont->charSpacing;
+    }
+    if (remain < mFont->charSpacing) {
+        this->clear(this->cursorX + drawW, this->cursorY, remain, fontHeight);
+        return -remain;
+    }
+    this->clear(this->cursorX + drawW, this->cursorY, mFont->charSpacing, fontHeight);
+    return drawW + mFont->charSpacing;
+}
+template <bool Positive, bool ClearBackground>
+static auto blitFuncFactory(bool shiftLeft)
+{
+    if (Positive) {
+        return shiftLeft ? &blitPagePositive<ClearBackground, true> : &blitPagePositive<ClearBackground, false>;
+    }
+    else {
+        return shiftLeft ? &blitPageNegative<ClearBackground, true> : &blitPageNegative<ClearBackground, false>;
+    }
+}
+template<bool ClearBackgnd, bool ShiftLeft>
+static void blitPagePositive(const uint8_t* rPage, uint8_t* wPage, const uint8_t* rend, uint8_t mask, int shift)
+{
+    auto rptr = rPage;
+    auto wptr = wPage;
+    for (; rptr < rend; rptr++, wptr++) {
+        uint8_t byte = ShiftLeft ? ((*rptr & mask) << shift) : ((*rptr & mask) >> shift);
+        *wptr |= byte;
+        if (ClearBackgnd) {
+            *wptr &= ~byte;
+        }
+    }
+}
+template<bool ClearBackgnd, bool ShiftLeft>
+static void blitPageNegative(const uint8_t* rPage, uint8_t* wPage, const uint8_t* rend, uint8_t mask, int shift)
+{
+    auto rptr = rPage;
+    auto wptr = wPage;
+    for (; rptr < rend; rptr++, wptr++) {
+        uint8_t byte = ShiftLeft ? ((*rptr & mask) << shift) : ((*rptr & mask) >> shift);
+        *wptr &= ~byte;
+        if (ClearBackgnd) {
+            *wptr |= byte;
+        }
+    }
 }
 };
 #endif
