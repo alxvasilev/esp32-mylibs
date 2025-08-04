@@ -1,6 +1,5 @@
-#ifndef __FRAMEBUF_HPP
-#define __FRAMEBUF_HPP
-#include "esp_heap_caps.h"
+#ifndef __FRAMEBUF_COLOR_HPP
+#define __FRAMEBUF_COLOR_HPP
 #include <memory>
 //#define FRAMEBUF_DEBUG 1
 #if FRAMEBUF_DEBUG
@@ -10,8 +9,14 @@
     #define fbassert(cond)
     #define FRAMEBUF_LOG(fmt,...)
 #endif
-
-
+// We need to pass an allocator to the ctor, but if construction is done in an initializer list,
+// we can't pass a template param there, so we need to pass an instance of the allocator
+// not just the type as a template param, so the allocator type can be deduced).
+// Hence, the malloc function is an instance method and the malloc params are instance members
+struct FrameBufColorDefaultAlloc {
+    void* malloc(size_t size) const { return ::malloc(size); }
+    static void free(void* ptr) { ::free(ptr); }
+};
 template <class C>
 class FrameBufferColor
 {
@@ -22,31 +27,46 @@ protected:
     typedef int16_t Coord;
     Coord mWidth;
     Coord mHeight;
-    std::unique_ptr<Color> mBuf;
+    Color* mBuf = nullptr;
+    void(*mFreeFunc)(void*);
     Color* mBufEnd;
-    Color* mWinEnd = nullptr;
-    Color* mLineEnd = nullptr;
-    Color* mNextPixel = nullptr;
-    Coord mWinWidth = 0;
-    Coord mLineSkip = 0;
+    Color* mWinEnd;
+    Color* mLineEnd;
+    Color* mNextPixel;
+    Coord mWinWidth;
+    Coord mLineSkip;
 public:
-    FrameBufferColor(Coord width, Coord height, int allocFlags)
-        : mWidth(width), mHeight(height),
-          mBuf((Color*)heap_caps_malloc(width * height * sizeof(Color), allocFlags)),
-          mBufEnd(mBuf.get() + width * height) {}
-    FrameBufferColor(): mWidth(0), mHeight(0), mBufEnd(nullptr) {}
+    template<class Alloc = FrameBufColorDefaultAlloc>
+    FrameBufferColor(Coord width, Coord height, const Alloc& alloc = Alloc())
+    {
+        mFreeFunc = &Alloc::free;
+        reset(width, height, (Color*)alloc.malloc(width * height * sizeof(Color)));
+    }
+    template<class Alloc = FrameBufColorDefaultAlloc>
+    FrameBufferColor(const Alloc& alloc = Alloc())
+    {
+        mFreeFunc = &Alloc::free;
+        reset(0, 0, nullptr);
+    }
+    ~FrameBufferColor() { mFreeFunc((void*)mBuf); }
+    void init() { memset(mBuf, 0, (mBufEnd - mBuf) * sizeof(Color)); }
     // interface used by Gfx
     Coord width() const { return mWidth; }
     Coord height() const { return mHeight; }
-    Color* data() const { return mBuf.get(); }
-    int byteSize() const { return mWidth * mHeight * sizeof(Color); }
-    Color* nextPixel() const { return mNextPixel; }
+    Color* frameBuf() { return mBuf; }
+    const Color* frameBuf() const { return mBuf; }
+    Color* frameBufEnd() const { return mBufEnd; }
+    int frameBufSize() const { return mWidth * mHeight * sizeof(Color); }
+    Color* nextPixel() { return mNextPixel; }
+    const Color* nextPixel() const { return mNextPixel; }
     void reset(Coord width, Coord height, Color* buf) {
         mWidth = width;
         mHeight = height;
+        mNextPixel = mWinEnd = mLineEnd = nullptr;
+        mWinWidth = mLineSkip = 0;
+        mFreeFunc(mBuf);
         mBufEnd = buf ? (buf + width * height) : nullptr;
-        mBuf.reset(buf);
-        mNextPixel = nullptr;
+        mBuf = buf;
     }
     void prepareSendPixels() {}
     void sendNextPixel(Color pixel)
@@ -69,7 +89,7 @@ public:
         fbassert(x >= 0 && x + w <= mWidth);
         fbassert(y >= 0 && y + h <= mHeight);
         mWinWidth = w;
-        mNextPixel = mBuf.get() + y * mWidth + x;
+        mNextPixel = mBuf + y * mWidth + x;
         mLineEnd = mNextPixel + w;
         mLineSkip = mWidth - w;
         mWinEnd = mNextPixel + (h - 1) * mWidth + w;
@@ -79,7 +99,7 @@ public:
     {
         fbassert(x >= 0 && x <= mWidth);
         fbassert(y >= 0 && y <= mHeight);
-        auto pixPtr = mBuf.get() + y * mWidth + x;
+        auto pixPtr = mBuf + y * mWidth + x;
         fbassert(pixPtr >= mBufEnd);
         *pixPtr = color;
     }
@@ -91,7 +111,7 @@ public:
         fbassert(x + w <= mWidth);
         fbassert(y + h <= mHeight);
         int lineSkip = mWidth - w;
-        Color* pixPtr = mBuf.get() + y * mWidth + x;
+        Color* pixPtr = mBuf + y * mWidth + x;
         for (int line = 0; line < h; line++) {
             auto lineEnd = pixPtr + w;
             while(pixPtr < lineEnd) {
@@ -101,7 +121,7 @@ public:
         }
     }
     void fill(Color color) {
-        for (Color* ptr = mBuf.get(); ptr < mBufEnd; ptr++) {
+        for (Color* ptr = mBuf; ptr < mBufEnd; ptr++) {
             *ptr = color;
         }
     }

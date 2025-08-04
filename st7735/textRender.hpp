@@ -20,21 +20,21 @@ void puts(const char* str, uint8_t flags=0)
         }
         else if (ch != '\r') {
             auto w = this->putc(ch, flags);
-            if (w > 0) {
-                this->cursorX += w;
-            }
-            else if (w == 0) { // need newline
+            if (w == 0) { // need newline
                 if (flags & this->kFlagNoAutoNewline) {
                     return;
                 }
                 newLine(); // retry same char
                 continue;
             }
-            else if (w == this->kPutcError) {
+            else if (!(w & this->kPutcStatusMask)) {
+                this->cursorX += w;
+            }
+            else if (w & this->kPutcError) {
                 return;
             }
-            else if (w < 0) {
-                this->cursorX -= w; // partial or no room for spacing at end
+            else if (w & this->kPutcPartial) {
+                this->cursorX += w & ~this->kPutcStatusMask; // partial or no room for spacing at end
                 return;
             }
         }

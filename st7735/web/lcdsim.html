@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<head>
+<style>
+#lcdCont {
+    display: flex;
+    justify-content: center;
+}
+.lcd {
+ background: linear-gradient(to bottom, #f1f7de 0%,#cfd9b0 100%);
+ overflow: hidden;
+}
+</style>
+<body>
+    <div id="lcdCont"></div>
+</body>
+<script type="module">
+class Lcd {
+    static instances = new Map();
+    constructor(wasm, w, h, bpp, buf, container, scale=2) {
+        this.wasm = wasm;
+        this.bpp = bpp;
+        this.width = w;
+        this.height = h;
+        this.vramAddr = buf;
+        this.vramSize = w * h * bpp / 8;
+        this.vram = new DataView(wasm.ram.buffer, buf, this.vramSize);
+        Lcd.instances.set(buf, this);
+        this.scale = scale;
+        const canv = this.canvas = document.createElement("canvas");
+        canv.classList.add("lcd");
+        canv.setAttribute("width", w * scale);
+        canv.setAttribute("height", h * scale);
+        canv.style.width = `${w * scale}px`;
+        canv.style.height = `${h * scale}px`;
+        container.appendChild(canv);
+        this.ctx = canv.getContext("2d");
+        this.ctx.scale(scale, scale);
+        this.ctx.imageSmoothingEnabled = false;
+        this.ctx.fillStyle = "black";
+    }
+}
+class MonoLcd extends Lcd {
+    constructor(wasm, w, h, buf, container, scale=2) {
+        super(wasm, w, h, buf, container, scale);
+        this.nPages = this.height / 8;
+    }
+    update() {
+        this.ctx.clearRect(0, 0, this.width, this.height);
+        for (let x = 0; x < this.width; x++) {
+            for (let page = 0; page < this.nPages; page++) {
+                const byteOffs = page * this.width + x;
+                for (let b = 0; b < 8; b++) {
+                    if (this.vram.getUint8(byteOffs) & (1 << b)) {
+                        this.ctx.fillRect(x, page * 8 + b, 1, 1);
+                    }
+                }
+            }
+        }
+        console.log("update");
+    }
+}
+class ColorLcd extends Lcd {
+    constructor(wasm, w, h, bpp, buf, container, scale=2) {
+        super(wasm, w, h, bpp, buf, container, scale);
+        if (bpp === 16) {
+            this.readPixel = this.vram.getUint16.bind(this.vram);
+            this.nativePixelTo32bit = ColorLcd.pixel565to32;
+        }
+        else if (bps == 32) {
+            this.readPixel = this.vram.getUint32.bind(this.vram);
+            this.nativePixelTo32bit = (val) => val;
+        }
+        else {
+            throw new Error("Unsupported bits per pixel " + bpp);
+        }
+    }
+    static pixel565to32(val) {
+        //console.log("b=", (val & 0xf800) >> 11, "g=", (val & 0x07e0) >> 5, "r=", (val & 0x1f));
+        return (0xff000000 | ((val & 0xf800) << 8) | ((val & 0x07e0) << 5) | ((val & 0x1f) << 3)) >>> 0;
+    }
+    update() {
+        const pixelData = this.ctx.getImageData(0, 0, this.width * this.scale, this.height * this.scale);
+        const dv = new DataView(pixelData.data.buffer);
+        let bytesPerPixel = this.bpp / 8;
+        let woffs = 0;
+        let rptY = 0;
+        const rLineSize = this.width * bytesPerPixel;
+        for (let rLineStart = 0; rLineStart < this.vramSize;) {
+            const rLineEnd = rLineStart + rLineSize;
+            for (let roffs = rLineStart; roffs < rLineEnd; roffs += bytesPerPixel) {
+                const native = this.readPixel(roffs, true);
+                const pixel = this.nativePixelTo32bit(native);
+                for (let rptX = 0; rptX < this.scale; rptX++) {
+                    dv.setUint32(woffs, pixel, true);
+                    woffs += 4;
+                }
+            }
+            if (++rptY < this.scale) {
+                continue;
+            }
+            rptY = 0;
+            rLineStart += rLineSize;
+        }
+        this.ctx.putImageData(pixelData, 0, 0);
+    }
+}
+import WasmModule from "./wasm-module.js";
+var wasm = new WasmModule;
+wasm.imports = {lcdInit, lcdUpdate};
+await wasm.load("main.wasm", 20);
+function lcdInit(bpp, w, h, buf) {
+    if (bpp === 1) {
+        new MonoLcd(wasm, w, h, buf, document.getElementById("lcdCont"), 3);
+    }
+    else {
+        new ColorLcd(wasm, w, h, bpp, buf, document.getElementById("lcdCont"), 2);
+    }
+}
+function lcdUpdate(buf) {
+    let lcd = Lcd.instances.get(buf);
+    lcd.update();
+}
+wasm.exports.main();
+//setInterval(wasm.exports.test, 100);
+
+</script>
+</html>

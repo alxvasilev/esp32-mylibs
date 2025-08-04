@@ -99,15 +99,15 @@ public:
     void fillRect(Coord x, Coord y, Coord w, Coord h, Color color);
     void fill(Color color);
     void dmaMountFrameBuffer(const FrameBufferColor<Color>& fb) {
-        dmaMountBuffer((const char*)fb.data(), fb.byteSize());
+        dmaMountBuffer((const char*)fb.frameBuf(), fb.frameBufSize());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h, const char* data);
     void dmaBlit(Coord x, Coord y, const FrameBufferColor<Color>& fb) {
-        dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.data());
+        dmaBlit(x, y, fb.width(), fb.height(), (const char*)fb.frameBuf());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h, const FrameBufferColor<Color>& fb) {
-        fbassert(w * h * sizeof(Color) <= fb.byteSize());
-        dmaBlit(x, y, w, h, (const char*)fb.data());
+        fbassert(w * h * sizeof(Color) <= fb.frameBufSize());
+        dmaBlit(x, y, w, h, (const char*)fb.frameBuf());
     }
     void dmaBlit(Coord x, Coord y, Coord w, Coord h);
 };
