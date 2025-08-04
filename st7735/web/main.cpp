@@ -42,9 +42,9 @@ void update() {
     lcdUpdate(this->frameBuf());
 }
 };
-//Lcd<FrameBufferWasm<FrameBufferMono<128, 64>>> lcd;
-Lcd<FrameBufferWasm<FrameBufferColor<uint16_t>>> lcd(320, 170);
-extern Font font_Camingo32;
+Lcd<FrameBufferWasm<FrameBufferMono<128, 64>>> lcd;
+//Lcd<FrameBufferWasm<FrameBufferColor<uint16_t>>> lcd(320, 170);
+extern Font font_Camingo22;
 
 extern "C" __attribute__((used)) void test()
 {
@@ -64,18 +64,25 @@ int main()
     printf("main called\n");
     lcd.init();
     lcd.setFgColor(0xffff);// 0x07E0);
-//    lcd.fillRect(0, 0, lcd.width(), 10);
-    lcd.setFont(font_Camingo32, 2);
+    lcd.setFont(Font_5x7, 1);
     lcd.cursorY = 0;
-//    lcd.puts("C:20 L:25  3.75v 100%");
-    lcd.puts("Test!");
+    lcd.cursorX = 0;
+    lcd.puts("C:20 L:25  3.75v 100%");
+    //  lcd.puts("Test!");
     lcd.update();
-    return 2;
-    lcd.hLine(0, 127, 8);
+#if 1
+    lcd.hLine(0, lcd.width(), lcd.fontHeight() + 1);
+#else
+    for (int x = 0; x < lcd.width(); x += 2) {
+        lcd.setPixel(x, lcd.fontHeight(), true);
+    }
+#endif
     lcd.newLine();
     lcd.cursorY += 1;
-    lcd.puts("2\n3\n4\n5\n6\n7");
-    lcd.vLine(lcd.cursorY, lcd.height() - lcd.fontHeight(), 126);
+    printf("height: %d, fontHeight: %d\n", lcd.height(), lcd.fontHeight());
+    lcd.vLine(lcd.fontHeight() + 2, lcd.height() - lcd.fontHeight() -1 , 127);
+    lcd.vLine(lcd.fontHeight() + 20, lcd.height() - lcd.fontHeight() -1 , 126);
+//  lcd.puts("2\n3\n4\n5\n6\n7");
     lcd.gotoXY(1, lcd.height() - lcd.lineHeight() + 1);
     lcd.puts("Cruise ");
     lcd.cursorX -= 2;
@@ -84,7 +91,21 @@ int main()
     lcd.puts("View ");
     lcd.cursorX -= 2;
     lcd.puts("Menu");
-    //lcd.invertRect(0, lcd.height() - lcd.charHeight() + 1, 128, lcd.charHeight() -1);
+    lcd.setFont(font_Camingo22);
+    lcd.cursorX = 0;
+    lcd.cursorY = 8;
+    lcd.puts("20.5");
+    lcd.setFont(Font_5x7);
+    lcd.cursorY += 9; //(font_Camingo22.height - Font_5x7.height);
+    lcd.puts("kph");
+#if 0
+    lcd.invertRect(0, lcd.height() - lcd.lineHeight(), 128, lcd.lineHeight());
+#else
+    lcd.hLine(0, lcd.width(), lcd.height() - lcd.lineHeight());
+//for (int x = 0; x < lcd.width(); x += 2) {
+//    lcd.setPixel(x, lcd.height() - lcd.lineHeight(), true);
+//}
+#endif
     //lcd.puts("\nTest message");
     lcd.update();
 }

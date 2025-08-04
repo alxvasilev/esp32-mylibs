@@ -186,7 +186,7 @@ void vLine(Coord y1, Coord y2, Coord x, Color color)
     auto page1 = y1 >> 3;
     auto page2 = y2 >> 3;
     auto pByte1 = mFrameBuf + page1 * Width + x;
-    auto pByte2 = mFrameBuf + page1 * Width + x;
+    auto pByte2 = mFrameBuf + page2 * Width + x;
 
     uint8_t mask1 = 0xff << (y1 & 0x07);
     uint8_t mask2 = 0xff >> (7 - (y2 & 0x07));

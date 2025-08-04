@@ -46,7 +46,7 @@ void hLine(Coord x1, Coord x2, Coord y) requires (!HasHline<Display>)
 {
     fillRect(x1, y, x2 - x1 + 1, 1);
 }
-void vLine(Coord x, Coord y1, Coord y2) requires (HasVline<Display>)
+void vLine(Coord y1, Coord y2, Coord x) requires (HasVline<Display>)
 {
     Display::vLine(y1, y2, x, mFgColor);
 }

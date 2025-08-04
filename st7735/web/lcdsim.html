@@ -110,7 +110,7 @@ wasm.imports = {lcdInit, lcdUpdate};
 await wasm.load("main.wasm", 20);
 function lcdInit(bpp, w, h, buf) {
     if (bpp === 1) {
-        new MonoLcd(wasm, w, h, buf, document.getElementById("lcdCont"), 3);
+        new MonoLcd(wasm, w, h, bpp, buf, document.getElementById("lcdCont"), 3);
     }
     else {
         new ColorLcd(wasm, w, h, bpp, buf, document.getElementById("lcdCont"), 2);

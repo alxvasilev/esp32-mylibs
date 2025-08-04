@@ -11,4 +11,5 @@ if [ -z $(which emcc) ]; then
     echo "source ./emsdk_env.sh"
     exit 1
 fi
-emcc ./main.cpp $@ -std=c++20 -O3 -sSTANDALONE_WASM=1  -Wl,--export=__wasm_call_ctors -Wl,--export=main -I .. -o ./main.wasm
+set -x
+emcc ./main.cpp $@ -std=c++20 -O0 -sSTANDALONE_WASM=1  -Wl,--export=__wasm_call_ctors -Wl,--export=main -I .. -o ./main.wasm

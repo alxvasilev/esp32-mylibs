@@ -22,8 +22,12 @@ public:
         kFlagAllowPartial = 2,
         kFlagNoBackground = 4
     };
+    enum: uint32_t {
+        kPutcError = 1u << 31,
+        kPutcPartial = 1u << 30,
+        kPutcStatusMask = 3u << 30
+    };
     typedef int16_t Coord;
-    static constexpr const int kPutcError = std::numeric_limits<int>::min();
     const Font* font() const { return mFont; }
     uint8_t fontScale() const { return 1; }
     void setFont(const Font& font, uint8_t scale=1) { mFont = &font; }
@@ -34,7 +38,7 @@ public:
     int8_t lineHeight() const { return mFont->height + mFont->lineSpacing; }
     int8_t charsPerLine() const { return this->width() / charWidth(); }
     using DisplayGfx::DisplayGfx;
-int putc(char ch, int flags)
+uint32_t putc(char ch, int flags)
 {
     if (this->cursorY >= this->height()) {
         return kPutcError;
@@ -104,7 +108,7 @@ int putc(char ch, int flags)
         }
     }
     if (drawW < charW) {
-        return -drawW;
+        return drawW & kPutcPartial;
     }
     remain -= drawW;
     if (flags & kFlagNoBackground) {
