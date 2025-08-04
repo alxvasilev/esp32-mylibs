@@ -7,9 +7,11 @@
 # also run arbitrary other code, provided that it can be built inside a webassembly
 # module and doesn't have external dependencies that can't be satisfied
 if [ -z $(which emcc) ]; then
-    echo "The Emscripten compiler 'emcc' not found in your path. You need to setup your shell environment with"
+    echo "The Emscripten compiler 'emcc' was not found in your path. You need to setup your shell environment with"
     echo "source ./emsdk_env.sh"
     exit 1
 fi
-set -x
+if [ "$V" == "1" ]; then
+    set -x
+fi
 emcc ./main.cpp $@ -std=c++20 -O0 -sSTANDALONE_WASM=1  -Wl,--export=__wasm_call_ctors -Wl,--export=main -I .. -o ./main.wasm
