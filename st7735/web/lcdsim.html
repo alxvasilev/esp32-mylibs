@@ -104,9 +104,12 @@ class ColorLcd extends Lcd {
         this.ctx.putImageData(pixelData, 0, 0);
     }
 }
+function scheduleResume(ms, contFunc) {
+    setTimeout(() => wasm.exports.coroutineResume(contFunc), ms);
+}
 import WasmModule from "./wasm-module.js";
 var wasm = new WasmModule;
-wasm.imports = {lcdInit, lcdUpdate};
+wasm.imports = {lcdInit, lcdUpdate, scheduleResume};
 await wasm.load("main.wasm", 20);
 function lcdInit(bpp, w, h, buf) {
     if (bpp === 1) {

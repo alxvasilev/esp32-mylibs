@@ -4,29 +4,25 @@
 #include <framebufMono.hpp>
 #include <framebuf.hpp>
 #include <stdfonts.hpp>
+#include <coroutine>
+#include <iostream>
 
 #ifdef EMSCRIPTEN
     #include <emscripten.h>
     __attribute__((import_module("env")))
     __attribute__((import_name("lcdInit")))
-    extern void lcdInit(int bpp, int w, int h, const void* buf);
+    extern void jsLcdInit(int bpp, int w, int h, const void* buf);
 
     __attribute__((import_module("env")))
     __attribute__((import_name("lcdUpdate")))
-    extern void lcdUpdate(const void* buf);
-    void delayMs(int milliseconds) {
-        double start = emscripten_get_now();
-        while (emscripten_get_now() - start < milliseconds) {
-            // Busy wait
-        }
-    }
+    extern void jsLcdUpdate(const void* buf);
     __attribute__((import_module("env")))
-    __attribute__((import_name("jsPrint")))
-    extern void jsPrint(int x);
+    __attribute__((import_name("scheduleResume")))
+    extern void jsScheduleResume(int ms, void* func);
 #else
-    void lcdInit(int bpp, int w, int h, const void* buf) {}
-    void lcdUpdate(const void* buf) {}
-    void delayMs(int milliseconds) {}
+    void jsLcdInit(int bpp, int w, int h, const void* buf) {}
+    void jsLcdUpdate(const void* buf) {}
+    void jsScheduleResume(int ms, void* func) {}
 #endif
 
 template<class FrameBuffer>
@@ -34,14 +30,43 @@ class FrameBufferWasm: public FrameBuffer {
 public:
 using FrameBuffer::FrameBuffer;
 void init() {
-    lcdInit(std::is_same_v<typename FrameBuffer::Color, bool> ? 1 : sizeof(typename FrameBuffer::Color)*8,
+    jsLcdInit(std::is_same_v<typename FrameBuffer::Color, bool> ? 1 : sizeof(typename FrameBuffer::Color)*8,
         this->width(), this->height(), this->frameBuf());
-    lcdUpdate((void*)this->frameBuf());
+    jsLcdUpdate((void*)this->frameBuf());
 }
 void update() {
-    lcdUpdate(this->frameBuf());
+    jsLcdUpdate(this->frameBuf());
 }
 };
+
+// Custom awaiter that suspends and stores the continuation
+struct JsResumeAwaiter {
+    int msDelay;
+    JsResumeAwaiter(int aMsDelay): msDelay(aMsDelay) {}
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(std::coroutine_handle<> h) const {
+        jsScheduleResume(msDelay, h.address());
+    }
+    void await_resume() const noexcept {}
+};
+struct Task {
+    struct promise_type {
+        Task get_return_object() { return {}; }
+        std::suspend_never initial_suspend() noexcept { return {}; }
+        std::suspend_never final_suspend() noexcept { return {}; }
+        void return_void() {}
+        void unhandled_exception() {}
+    };
+};
+extern "C" __attribute__((used)) void coroutineResume(void* ptr) {
+    printf("Resuming coroutine %p\n", ptr);
+    std::coroutine_handle<>::from_address(ptr)();
+}
+Task asyncWait(int ms)
+{
+    co_await JsResumeAwaiter(ms);
+}
+
 Lcd<FrameBufferWasm<FrameBufferMono<128, 64>>> lcd;
 //Lcd<FrameBufferWasm<FrameBufferColor<uint16_t>>> lcd(320, 170);
 extern Font font_Camingo22;
@@ -59,17 +84,25 @@ extern "C" __attribute__((used)) void test()
     lcd.update();
 }
 //Test t;
-int main()
+Task appMain()
 {
-    printf("main called\n");
     lcd.init();
     lcd.setFgColor(0xffff);// 0x07E0);
     lcd.setFont(Font_5x7, 1);
     lcd.cursorY = 0;
     lcd.cursorX = 0;
-    lcd.puts("C:20 L:25  3.75v 100%");
-    //  lcd.puts("Test!");
-    lcd.update();
+//  lcd.puts("C:20 L:25  3.75v 100%");
+//    lcd.update();
+    for (int y = 0; y < lcd.height() - lcd.lineHeight(); y++) {
+        if (y > 0) {
+            lcd.clear(0, y-1, lcd.width(), lcd.lineHeight());
+        }
+        lcd.cursorY = y;
+        lcd.cursorX = 0;
+        lcd.puts("C:20 L:25  3.75v 100%");
+        lcd.update();
+        co_await JsResumeAwaiter(200);
+    }
 #if 1
     lcd.hLine(0, lcd.width(), lcd.fontHeight() + 1);
 #else
@@ -108,4 +141,9 @@ int main()
 #endif
     //lcd.puts("\nTest message");
     lcd.update();
+    co_return;
+}
+int main()
+{
+    appMain();
 }
