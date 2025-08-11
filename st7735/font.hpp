@@ -1,34 +1,67 @@
 #ifndef FONT_HPP
 #define FONT_HPP
 #include <stdint.h>
+#include <assert.h>
+#define _FONT_FORCE_ROM
 
 struct Font
 {
+    typedef uint16_t CharCode;
+    struct Range {
+        CharCode firstCode;
+        CharCode lastCode;
+        uint16_t startIdx;
+    };
+    struct RangeList {
+        const Range* ranges;
+        uint8_t size;
+        constexpr RangeList(uint8_t aSize, const Range* aRanges): ranges(aRanges), size(aSize) {}
+    };
+    enum Flags {
+        kVertScan = 1,
+        kStrippedX = 2,
+        kStrippedY = 4
+    };
     const uint8_t width;
     const uint8_t height;
-    const uint8_t charCount;
+    const CharCode firstCode;
+    const CharCode lastCode;
     const uint8_t charSpacing: 4;
     const uint8_t lineSpacing: 4;
+    const uint8_t* fontData;
     const uint8_t* offsets;
-    const uint8_t* data;
-    const bool isVertScan;
+    const RangeList* ranges;
+    const Flags flags;
+    const bool isVertScan; // just for quicker access
     const uint8_t byteHeightOrWidth;
-    Font(bool aVert, uint8_t aWidth, uint8_t aHeight, uint8_t aCount, uint8_t charSp,
-         uint8_t lineSp, const void* aData, const uint8_t* aOffsets=nullptr)
-    :width(aWidth), height(aHeight), charCount(aCount), charSpacing(charSp),
-     lineSpacing(lineSp), offsets(aOffsets), data((uint8_t*)aData), isVertScan(aVert),
-     byteHeightOrWidth(isVertScan ? ((aHeight + 7) / 8) : (aWidth + 7) / 8)
+    Font(Flags aFlags, uint8_t aWidth, uint8_t aHeight, CharCode aFirst, CharCode aLast,
+         const uint8_t* aData, const RangeList* aRanges, const uint8_t* aOffsets,
+         uint8_t charSp, uint8_t lineSp)
+    : width(aWidth), height(aHeight), firstCode(aFirst), lastCode(aLast), charSpacing(charSp), lineSpacing(lineSp),
+      fontData(aData), offsets(aOffsets), ranges(aRanges), flags(aFlags), isVertScan(flags & kVertScan),
+      byteHeightOrWidth(isVertScan ? ((aHeight + 7) / 8) : (aWidth + 7) / 8)
     {}
-    bool isMono() const { return offsets == nullptr; }
-    int codeToIdx(uint8_t code) const {
-        if (code < 32) {
+    bool isMonoSpace() const { return offsets == nullptr; }
+    int codeToIdx(CharCode code) const {
+        if (code < firstCode) {
             return -1;
         }
-        code -= 32;
-        return (code >= charCount) ? -1 : code;
+        if (code <= lastCode) {
+            return code - firstCode;
+        }
+        if (!ranges) {
+            return -1;
+        }
+        auto end = ranges->ranges + ranges->size;
+        for (auto range = ranges->ranges; range < end; range++) {
+            if (code <= range->lastCode) {
+                return code >= range->firstCode ? code - range->firstCode + range->startIdx : -1;
+            }
+        }
+        return -1;
     }
     /* Returns the char width in code, as an uint8_t */
-    const uint8_t* getCharData(uint8_t& code) const
+    const uint8_t* getCharData(CharCode code, int& aWidth) const
     {
         int idx = codeToIdx(code);
         if (idx < 0) {
@@ -36,21 +69,21 @@ struct Font
         }
         if (isVertScan) {
             if (!offsets) {
-                code = width;
-                return data + (byteHeightOrWidth * width) * idx;
+                aWidth = width;
+                return fontData + (byteHeightOrWidth * width) * idx;
             }
             else {
                 auto ofs = (idx == 0) ? 0 : offsets[idx-1];
-                code = (offsets[idx] - ofs) / byteHeightOrWidth;
-                return data + ofs;
+                aWidth = (offsets[idx] - ofs) / byteHeightOrWidth;
+                return fontData + ofs;
             }
         } else {
             // only monospace fonts supported
-            code = width;
-            return data + (byteHeightOrWidth * height) * idx;
+            aWidth = width;
+            return fontData + (byteHeightOrWidth * height) * idx;
         }
     }
-    int charWidth(char ch=0) const {
+    int charWidth(CharCode ch=0) const {
         if (!offsets) {
             return width;
         }
@@ -61,7 +94,7 @@ struct Font
         auto ofs = (idx == 0) ? 0 : offsets[idx - 1];
         return (offsets[idx] - ofs) / byteHeightOrWidth;
     }
-    int textWidth(int len) { return len * (width + charSpacing); }
+    int textMonoSpcWidth(int len) const { assert(!this->offsets); return len * (width + charSpacing); }
 };
 
 #endif // FONT_HPP

@@ -20,7 +20,8 @@ public:
     {
         kFlagNoAutoNewline = 1,
         kFlagAllowPartial = 2,
-        kFlagNoBackground = 4
+        kFlagNoBackground = 4,
+        kFlagDisableUtf8 = 8
     };
     enum: uint32_t {
         kPutcError = 1u << 31,
@@ -38,7 +39,7 @@ public:
     int8_t lineHeight() const { return mFont->height + mFont->lineSpacing; }
     int8_t charsPerLine() const { return this->width() / charWidth(); }
     using DisplayGfx::DisplayGfx;
-uint32_t putc(char ch, int flags)
+uint32_t putc(Font::CharCode ch, int flags)
 {
     if (this->cursorY >= this->height()) {
         return kPutcError;
@@ -47,8 +48,8 @@ uint32_t putc(char ch, int flags)
     if (remain <= 0) {
         return 0;
     }
-    uint8_t charW = ch;
-    const uint8_t* sym = mFont->getCharData(charW);
+    int charW;
+    const uint8_t* sym = mFont->getCharData(ch, charW);
     if (!sym) {
         return kPutcError;
     }

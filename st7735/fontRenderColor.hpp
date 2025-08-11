@@ -13,7 +13,8 @@ public:
     {
         kFlagNoAutoNewline = 1,
         kFlagAllowPartial = 2,
-        kFlagNoBackground = 4
+        kFlagNoBackground = 4,
+        kFlagDisableUtf8 = 8
     };
     enum: uint32_t {
         kPutcError = 1u << 31,
@@ -28,9 +29,10 @@ public:
 using GfxDisplay::GfxDisplay;
 void setFont(const Font& font, int8_t scale=1) { mFont = &font; mFontScale = scale; }
 void setFontScale(int8_t scale) { mFontScale = scale; }
+int8_t fontScale() const { return mFontScale; }
 Coord fontHeight() const { return mFont->height * mFontScale; }
 Coord fontWidth() const { return mFont->width * mFontScale; }
-Coord charWidth(char ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * mFontScale; }
+Coord charWidth(Font::CharCode ch=0) const { return (mFont->charWidth(ch) + mFont->charSpacing) * mFontScale; }
 Coord lineHeight() const { return (mFont->height + mFont->lineSpacing) * mFontScale; }
 Coord charsPerLine() const { return this->width() / charWidth(); }
 const Font* font() const { return mFont; }
@@ -92,7 +94,7 @@ void blitMonoVscan(Coord w, Coord h, const uint8_t* binData, int8_t bgSpacing, i
         }
     }
 }
-uint32_t putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
+uint32_t putc(Font::CharCode ch, uint8_t flags=0, uint8_t startCol=0)
 {
     if (!mFont) {
         return kPutcError;
@@ -100,9 +102,9 @@ uint32_t putc(uint8_t ch, uint8_t flags=0, uint8_t startCol=0)
     if (this->cursorY >= this->height() || this->cursorX >= this->width()) {
         return kPutcError;
     }
-    uint8_t width = ch;
+    int width;
     // returns char width via the charcode argument
-    auto charData = mFont->getCharData(width);
+    auto charData = mFont->getCharData(ch, width);
     if (!charData) {
         return kPutcError;
     }

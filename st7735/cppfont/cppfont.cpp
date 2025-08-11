@@ -18,16 +18,19 @@ void rpt(std::ostream& os, int rpt, T what)
         os << what;
     }
 }
-static inline void checkError(FT_Error err, const char* opName) {
+static inline void checkError(FT_Error err, const char* opName)
+{
     if (err) {
-        throw runtime_error(string(opName) + ": Error " + FT_Error_String(err));
+        auto str = FT_Error_String(err);
+        string errName = str ? string(str) + "(" + to_string(err) + ")" : to_string(err);
+        throw runtime_error(string("FreeType error ") + errName + " while " + opName);
     }
 }
 
 struct FreetypeLib {
     FT_Library mLib;
     FreetypeLib() {
-        checkError(FT_Init_FreeType(&mLib), "init Freetype");
+        checkError(FT_Init_FreeType(&mLib), "initializing FreeType");
     }
     ~FreetypeLib() {
         if (mLib) {
@@ -41,6 +44,9 @@ struct Font {
         uint32_t first;
         uint32_t last;
         uint32_t startIdx;
+        int numHexDigits() const {
+            return last <= 0xff ? 2 : (last <= 0xfff ? 3 : 4);
+        }
     };
     FT_Library mLib;
     FT_Face mFace = nullptr;
@@ -61,10 +67,7 @@ void load(const char* fontPath, long fontSize)
         FT_Done_Face(mFace);
         mFace = nullptr;
     }
-    auto err = FT_New_Face(mLib, fontPath, 0, &mFace);
-    if (err) {
-        throw runtime_error(string("Failed to load font: ") + FT_Error_String(err));
-    }
+    checkError(FT_New_Face(mLib, fontPath, 0, &mFace), "loading font");
     FT_Set_Pixel_Sizes(mFace, 0, fontSize);
     mHeight = mFace->size->metrics.height >> 6;
     mWidth = mFace->size->metrics.max_advance >> 6;
@@ -88,12 +91,12 @@ FT_Error loadCharMono(uint32_t code)
 }
 void loadCharMonoMustExist(uint32_t code)
 {
-    checkError(FT_Load_Char(mFace, code, FT_LOAD_TARGET_MONO), "loadChar");
+    checkError(FT_Load_Char(mFace, code, FT_LOAD_TARGET_MONO), "loading char");
     mCharCode = code;
 }
 void currGlyphRender()
 {
-    checkError(FT_Render_Glyph(mFace->glyph, FT_RENDER_MODE_MONO), "Render glyph");
+    checkError(FT_Render_Glyph(mFace->glyph, FT_RENDER_MODE_MONO), "rendering glyph");
     auto glyph = mFace->glyph;
     auto bmp = glyph->bitmap;
     mBmpLeftMin = min<int>(mBmpLeftMin, glyph->bitmap_left);
@@ -210,18 +213,18 @@ uint32_t cmdExportToCpp(int argc, char** argv)
     ofs << hex;
     for (int i = 0; i < outRanges.size(); i++) {
         auto& range = outRanges[i];
-        int nDigits = range.last <= 0xff ? 2 : (range.last <= 0xfff ? 3 : 4);
+        int nDigits = range.numHexDigits();
         ofs << "0x" << setw(nDigits) << setfill('0') << range.first << "-0x" << setw(nDigits) << range.last;
         ofs << ((i < outRanges.size() - 1) ? ", ": "\n");
     }
     ofs << dec << setw(0);
     int glyphSize = mBmpWidthMax * ((mBmpHeightMax + 7) / 8);
-    ofs << "Total " << dec << allCodes.size() << " chars * " << glyphSize << " = " << allCodes.size() * glyphSize << " bytes\n";
+    ofs << "Total " << allCodes.size() << " chars * " << glyphSize << " = " << allCodes.size() * glyphSize << " bytes\n";
     ofs << "Generated with cppfont utility by Alexander Vassilev\n"
         << "*/\n"
-        << "// fontdesc: " << dec << mBmpWidthMax << 'x' << mBmpHeightMax << "; vh-scan\n"
+        << "// fontdesc: " << mBmpWidthMax << 'x' << mBmpHeightMax << "; vh-scan\n"
         << "#include <font.hpp>\n"
-        << "static const unsigned char " << fontName << "_data[] ={\n";
+        << "static const unsigned char " << fontName << "_data[] = {\n";
     string text;
     for (auto code: allCodes) {
         loadCharMonoMustExist(code);
@@ -230,11 +233,23 @@ uint32_t cmdExportToCpp(int argc, char** argv)
         currGlyphToCpp(text);
         ofs << text;
     }
-    ofs << "};\n"
-        << "// (isVertical, width, height, count, charSpacing, lineSpacing, data, offsets)\n"
-        << "__attribute__((section(\".rodata\")))\n"
-        << "extern Font const " << fontName << "(true, " << mBmpWidthMax << ", " << mBmpHeightMax << ", "
-        << outRanges[0].first << ", 1, 1, " << fontName << "_data, nullptr);\n";
+    ofs << "};\n";
+    if (outRanges.size() > 1) {
+        ofs << dec;
+        ofs << "_FONT_FORCE_ROM static const Font::RangeList " << fontName << "_extranges(" << outRanges.size() - 1 <<", (const Font::Range[]){";
+        ofs << hex;
+        for (size_t i = 1; i < outRanges.size(); i++) {
+            auto& range = outRanges[i];
+            ofs << setw(range.numHexDigits());
+            ofs << "{0x" << range.first << ",0x" << range.last << ",0x" << range.startIdx << "},";
+        }
+        ofs << "});\n";
+    }
+    ofs << dec;
+    ofs << "// (flags, width, height, firstCode, lastCode, data, ranges, offsets, charSpacing, lineSpacing)\n"
+        << "_FONT_FORCE_ROM extern const Font " << fontName << "(Font::kVertScan, " << mBmpWidthMax << ", " << mBmpHeightMax << ", "
+        << outRanges[0].first << ", " << outRanges[0].last << ", " << fontName << "_data, &" << fontName
+        << "_extranges, nullptr, 1, 1);\n";
     printf("Font saved to %s\n", outFileName.c_str());
     return missing;
 }
