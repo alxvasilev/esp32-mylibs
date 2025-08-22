@@ -125,7 +125,7 @@ static T parseInt(const char* str, const char* opName)
 }
 void parseRanges(char* str, vector<pair<uint32_t, uint32_t>>& ranges)
 {
-    // format is: first1:last1;first2:last2;.....
+    // format is: first1-last1;first2-last2;.....
     ranges.clear();
     char* state = nullptr;
     for (auto token = strtok_r(str, ",", &state); token; token = strtok_r(nullptr, ",", &state)) {
