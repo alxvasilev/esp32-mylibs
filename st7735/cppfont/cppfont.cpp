@@ -386,7 +386,7 @@ int main(int argc, char* argv[])
              << "Usage:\n"
              << "Show selected chars of specified font and vertical font size:\n"
              << "  " << argv[0] << " show  <font-file> <font-vsize> <chars>\n"
-             << "Create a C++ font:\n"
+             << "Create a C++ v-scan font:\n"
              << "  " << argv[0] << " tocpp <font-path> <font-size> <ranges> <cppfont-name>\n"
              << "  <ranges> is in the form (startCode1-endCode1|named1),(startCode2-endCode2|named2);....\n"
              << "  Named ranges:";
