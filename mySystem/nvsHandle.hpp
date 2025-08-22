@@ -81,6 +81,8 @@ protected:
     unique_ptr_mfree<char> mNsName; // needed only to create an iterator - the NVSHandle doesn't provide access to ns and partition names
     bool mTimerIsRunning = false;
     static const char* tag() { static const char* sTag = "nvs-handle"; return sTag; }
+    /* If len is more than the actual size of the value, it will get adjusted to the actual size.
+     * If it's less, ESP_ERR_NVS_INVALID_LENGTH error will be returned */
     esp_err_t readStringOrBlob(const char* key, void* data, int& len, nvs::ItemType type)
     {
         {
@@ -91,7 +93,7 @@ protected:
                 if (item.type != type) {
                     return ESP_ERR_NVS_TYPE_MISMATCH;
                 }
-                auto itemSize = item.dataSize();
+                int itemSize = item.dataSize();
                 if (len < itemSize) {
                     return ESP_ERR_NVS_INVALID_LENGTH;
                 }
@@ -108,6 +110,7 @@ protected:
         if (len < itemSize) {
             return ESP_ERR_NVS_INVALID_LENGTH;
         }
+        len = itemSize;
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wignored-qualifiers"
         err = (type == nvs::ItemType::SZ) ? mHandle->get_string(key, (char*)data, (const size_t)len) : mHandle->get_blob(key, data, (const size_t)len);
@@ -115,7 +118,6 @@ protected:
         if (err != ESP_OK) {
             return err;
         }
-        len = itemSize;
         return ESP_OK;
     }
     int getStringOrBlobSize(const char* key, nvs::ItemType type)

@@ -61,9 +61,10 @@ int utf8ToWchar(wchar_t& wc, const char*& utf8str)
     uint8_t b0 = *u8;
     if (b0 < 0x80) {
         wc = b0;
-        if (b0) {
-            u8++;
+        if (!b0) {
+            return 6;
         }
+        utf8str++;
         return 0;
     }
     u8++;
@@ -104,28 +105,28 @@ const char* utf8NextChar(const char* str)
     if (!*str) {
         return nullptr;
     }
-    auto u8 = reinterpret_cast<const uint8_t*&>(str);
+    auto u8 = reinterpret_cast<const uint8_t*>(str);
     uint8_t ch = *(u8++);
     if (ch < 0x80) {
-        return str;
+        return (const char*)u8;
     }
     if ((*(u8++) & 0b1100'0000) != 0b1000'0000) { // error
         return nullptr;
     }
     if ((ch & 0b1110'0000) == 0b1100'0000) { // two-byte wchar
-        return str;
+        return (const char*)u8;
     }
     if ((*(u8++) & 0b1100'0000) != 0b1000'0000) { // error
         return nullptr;
     }
     if ((ch & 0b1111'0000) == 0b1110'0000) { // three-byte wchar
-        return str;
+        return (const char*)u8;
     }
     if ((*(u8++) & 0b1100'0000) != 0b1000'0000) { // error
         return nullptr;
     }
     if ((ch & 0b1111'1000) == 0b1111'0000) { // 4-byte wchar
-        return str;
+        return (const char*)u8;
     }
     return nullptr; // error
 }
