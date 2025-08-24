@@ -8,15 +8,29 @@
 #include <limits>
 #include <ctype.h>
 #include <iomanip>
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/ioctl.h>
+    #include <unistd.h>
+#endif
 
 using namespace std;
 
-template <typename T>
-void rpt(std::ostream& os, int rpt, T what)
+template <typename Dest, typename T>
+void rpt(Dest& dest, int rpt, T what)
 {
     for (int i = 0; i < rpt; i++) {
-        os << what;
+        dest << what;
     }
+}
+template <typename T>
+string& rpt(string& str, int rpt, T what)
+{
+    for (int i = 0; i < rpt; i++) {
+        str += what;
+    }
+    return str;
 }
 static inline void checkError(FT_Error err, const char* opName)
 {
@@ -26,6 +40,47 @@ static inline void checkError(FT_Error err, const char* opName)
         throw runtime_error(string("FreeType error ") + errName + " while " + opName);
     }
 }
+struct TextBox: public vector<string>
+{
+    iterator currLine;
+    TextBox(int w, int h): vector(h) {
+        for (auto& line: *this) {
+            line.reserve(w + 16);
+        }
+        currLine = begin();
+    }
+    void clear() {
+        for (auto& line: *this) {
+            line.clear();
+        }
+        currLine = begin();
+    }
+    TextBox& newLine() {
+        if (++currLine == end()) {
+            throw runtime_error("nextLine: Attempted to go past last line");
+        }
+        return *this;
+    }
+    template<typename T>
+    TextBox& append(const T& str) {
+        currLine->append(str);
+        return *this;
+    }
+    template<typename T>
+    TextBox& operator<<(const T& str) {
+        currLine->append(str);
+        return *this;
+    }
+    TextBox& operator<<(char ch) {
+        if (ch == '\n') {
+            newLine();
+        }
+        else {
+            (*currLine) += ch;
+        }
+        return *this;
+    }
+};
 
 struct FreetypeLib {
     FT_Library mLib;
@@ -54,10 +109,10 @@ struct Font {
     int mWidth = 0;
     // bounding box coords relative to pen origin, which is (x=start-of-char=0, y=baseline=0)
     // y increases top to bottom, x increases left to right
-    int mBmpLeftMin;
-    int mBmpTopMax;
-    int mBmpWidthMax;
-    int mBmpHeightMax;
+    int mBmpLeftMin; // min offset from cursor to left of glyph: min(bitmap_left)
+    int mBmpRightMax; // max span of glyphs to the right of cursor: max(bitmap_left + width)
+    int mBmpTopMax; // max distance from baseline to top of glyph: max(bitmap_top)
+    int mBmpBottomMax; // max distance from baseline to bottom of glyph: max(bmp.rows - bitmap_top)
     uint32_t mCharCode = 0;
     static const map<string, pair<uint32_t, uint32_t>> sNamedRanges;
 Font(FT_Library ft): mLib(ft) {}
@@ -76,9 +131,9 @@ void load(const char* fontPath, long fontSize)
 void resetBoundingBox()
 {
     mBmpLeftMin = 0xffffff;
-    mBmpTopMax = -0xffffff;
-    mBmpWidthMax = -1;
-    mBmpHeightMax = -1;
+    mBmpRightMax = -1;
+    mBmpTopMax = -1;
+    mBmpBottomMax = -1;
 }
 FT_Error loadCharMono(uint32_t code)
 {
@@ -100,10 +155,13 @@ void currGlyphRender()
     auto glyph = mFace->glyph;
     auto bmp = glyph->bitmap;
     mBmpLeftMin = min<int>(mBmpLeftMin, glyph->bitmap_left);
-    mBmpWidthMax = max<int>(mBmpWidthMax, glyph->bitmap_left + bmp.width - mBmpLeftMin);
+    mBmpRightMax = max<int>(mBmpRightMax, glyph->bitmap_left + bmp.width);
     mBmpTopMax = max<int>(mBmpTopMax, glyph->bitmap_top);
-    mBmpHeightMax = max<int>(mBmpHeightMax, bmp.rows + mBmpTopMax - glyph->bitmap_top);
+    mBmpBottomMax = max<int>(mBmpBottomMax, bmp.rows - glyph->bitmap_top);
 }
+int fontWidth() { return mBmpRightMax - mBmpLeftMin; }
+int fontHeight() { return mBmpTopMax + mBmpBottomMax; }
+
 template <typename T=unsigned long, T(*Func)(const char*, char**, int) = strtoul>
 static T parseInt(const char* str, const char* opName)
 {
@@ -207,8 +265,10 @@ uint32_t cmdExportToCpp(int argc, char** argv)
         fprintf(stderr, "Can't open %s for writing\n", outFileName.c_str());
         return 2;
     }
+    int fntWidth = fontWidth();
+    int fntHeight = fontHeight();
     ofs << "/*\n"
-        << "Vertical-scan bitmap data for " << dec << mBmpWidthMax << "x" << mBmpHeightMax << " font " << fontName << "\n"
+        << "Vertical-scan bitmap data for " << dec << fntWidth << "x" << fntHeight << " font " << fontName << "\n"
         << "Defines char code ranges ";
     ofs << hex;
     for (int i = 0; i < outRanges.size(); i++) {
@@ -218,11 +278,11 @@ uint32_t cmdExportToCpp(int argc, char** argv)
         ofs << ((i < outRanges.size() - 1) ? ", ": "\n");
     }
     ofs << dec << setw(0);
-    int glyphSize = mBmpWidthMax * ((mBmpHeightMax + 7) / 8);
+    int glyphSize = fntWidth * ((fntHeight + 7) / 8);
     ofs << "Total " << allCodes.size() << " chars * " << glyphSize << " = " << allCodes.size() * glyphSize << " bytes\n";
     ofs << "Generated with cppfont utility by Alexander Vassilev\n"
         << "*/\n"
-        << "// fontdesc: " << mBmpWidthMax << 'x' << mBmpHeightMax << "; vh-scan\n"
+        << "// fontdesc: " << fntWidth << 'x' << fntHeight << "; vh-scan\n"
         << "#include <font.hpp>\n"
         << "static const unsigned char " << fontName << "_data[] = {\n";
     string text;
@@ -247,7 +307,7 @@ uint32_t cmdExportToCpp(int argc, char** argv)
     }
     ofs << dec;
     ofs << "// (flags, width, height, firstCode, lastCode, data, ranges, offsets, charSpacing, lineSpacing)\n"
-        << "_FONT_FORCE_ROM extern const Font " << fontName << "(Font::kVertScan, " << mBmpWidthMax << ", " << mBmpHeightMax << ", "
+        << "_FONT_FORCE_ROM extern const Font " << fontName << "(Font::kVertScan, " << fntWidth << ", " << fntHeight << ", "
         << outRanges[0].first << ", " << outRanges[0].last << ", " << fontName << "_data, &" << fontName
         << "_extranges, nullptr, 1, 1);\n";
     printf("Font saved to %s\n", outFileName.c_str());
@@ -266,18 +326,98 @@ void cmdShowChars(const char* chars)
         loadCharMono(*ch);
         currGlyphRender();
     }
-    for(auto ch = wstr; *ch; ch++) {
+    vector<TextBox> boxes;
+    int boxWidth = fontWidth() + 2;
+    int boxesPerLine = consoleGetWidth() / (boxWidth);
+    boxes.reserve(boxesPerLine);
+    for (auto i = 0; i < boxesPerLine; i++) {
+        boxes.emplace_back(boxWidth, fontHeight() + 10);
+    }
+    int charIdx = 0;
+    for(auto ch = wstr; *ch;) {
         if (loadCharMono(*ch) == 0) {
             currGlyphRender();
-            currGlyphPrint(cout);
+            int boxCol = charIdx % boxesPerLine;
+            auto& box = boxes[boxCol];
+            box.clear();
+            ch++;
+            bool isLineLast = (boxCol == boxesPerLine - 1) || !*ch;
+            currGlyphPrint(box, isLineLast);
+            if (isLineLast) {
+                renderTextBoxesInLine(boxes, boxCol+1, boxWidth);
+            }
         }
         else {
             printf("Char %x missing in font face\n", *ch);
         }
+        charIdx++;
     }
     printf("Font size of complete font: %d x %d\n", mWidth, mHeight);
-    printf("Font size of selected chars: %d x %d\n", mBmpWidthMax, mBmpHeightMax);
-
+    printf("Font size of selected chars: %d x %d\n", fontWidth(), fontHeight());
+}
+int consoleGetWidth()
+{
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int columns = 80;
+    HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hStdout != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hStdout, &csbi)) {
+        columns = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    }
+    return columns;
+#else
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
+        return w.ws_col;
+    } else {
+        return 80; // fallback
+    }
+#endif
+}
+int utf8strlen(const char* str)
+{
+    int len = 0;
+    while(*str) {
+        uint8_t ch = *(uint8_t*)str;
+        int n;
+        if (ch < 0x80) {
+            n = 1;
+        }
+        else if ((ch & 0b1110'0000) == 0b1100'0000) { // two-byte wchar
+            n = 2;
+        }
+        else if ((ch & 0b1111'0000) == 0b1110'0000) { // three-byte wchar
+            n = 3;
+        }
+        else if ((ch & 0b1111'1000) == 0b1111'0000) { // 4-byte wchar
+            n = 4;
+        }
+        else {
+            throw runtime_error("Invalid utf-8 sequence");
+        }
+        len++;
+        str += n;
+    }
+    return len;
+}
+void renderTextBoxesInLine(const vector<TextBox>& boxes, int n, int width)
+{
+    auto numLines = boxes[0].size();
+    std::string line;
+    line.reserve(width * boxes.size());
+    for (int l = 0; l < numLines; l++) {
+        line.clear();
+        for (int b = 0; b < n; b++) {
+            auto& box = boxes[b];
+            const auto& boxLine = box[l];
+            line.append(boxLine);
+            int padding = width - (int)utf8strlen(boxLine.c_str());
+            if (padding > 0) {
+                line.append(padding, ' ');
+            }
+        }
+        puts(line.c_str());
+    }
 }
 void currGlyphToCpp(string& dest)
 {
@@ -285,9 +425,9 @@ void currGlyphToCpp(string& dest)
     auto glyph = mFace->glyph;
     auto bmp = glyph->bitmap;
     int offsTop = mBmpTopMax - glyph->bitmap_top; // Number of empty rows above our bitmap. Can't be negative
-    int yEnd = mBmpHeightMax - offsTop;
+    int yEnd = mBmpTopMax + mBmpBottomMax - offsTop; // End row index, rows between bmp.rows and this are empty space at bottom
     int offsLeft = glyph->bitmap_left - mBmpLeftMin; // Number of empty rows to the left of our bitmap. Can't be negative
-    int xEnd = mBmpWidthMax - offsLeft;
+    int xEnd = mBmpRightMax - mBmpLeftMin - offsLeft; // End col index, cols between bmp.width and this are empty space at right
     for (int rowBase = -offsTop; rowBase < yEnd; rowBase += 8) {
         for (int col = -offsLeft; col < xEnd; col++) {
             uint8_t bits = 0;
@@ -311,23 +451,23 @@ void currGlyphToCpp(string& dest)
     snprintf(hex, sizeof(hex), " (0x%02x)\n", mCharCode);
     dest += hex;
 }
-void currGlyphPrint(ostream& os)
+void currGlyphPrint(TextBox& os, bool rightBorder)
 {
-    string topBottomLine = "+";
-    topBottomLine.append(mBmpWidthMax, '-');
-    topBottomLine.append("+\n");
+    os.clear();
+    string topBottomLine = "┬";
+    rpt(topBottomLine, fontWidth(), "─").append(rightBorder ? "┬" : "─");
     os << topBottomLine;
-//    rpt(os, mSpaceTop, emptyLine);
+    os.newLine();
     auto glyph = mFace->glyph;
     auto bmp = glyph->bitmap;
     int offsTop = mBmpTopMax - glyph->bitmap_top; // Number of empty rows above our bitmap. Can't be negative
-    int yEnd = mBmpHeightMax - offsTop;
+    int yEnd = mBmpTopMax + mBmpBottomMax - offsTop;
     int offsLeft = glyph->bitmap_left - mBmpLeftMin; // Number of empty rows to the left of our bitmap. Can't be negative
-    int xEnd = mBmpWidthMax - offsLeft;
+    int xEnd = mBmpRightMax - mBmpLeftMin - offsLeft;
     for (int row = -offsTop; row < yEnd; ++row) {
-        os << '|';
+        os << "│";
         if (row < 0 || row >= bmp.rows) {
-            rpt(os, mBmpWidthMax, ' ');
+            rpt(os, fontWidth(), ' ');
         }
         else {
             for (int col = -offsLeft; col < xEnd; ++col) {
@@ -342,35 +482,43 @@ void currGlyphPrint(ostream& os)
                 }
             }
         }
-        os << "|    ";
-        if (row == 0) {
-            char utf8buf[MB_CUR_MAX + 1];  // max bytes needed for one multibyte char
-            mbstate_t state = mbstate_t();
-            size_t bytes = wcrtomb(utf8buf, mCharCode, &state);
-            if (bytes != (size_t)-1) {
-                utf8buf[bytes] = 0;
-            }
-            else {
-                utf8buf[0] = '?';
-                utf8buf[1] = 0;
-            }
-            printf("char   : '%s' (0x%04x)", utf8buf, mCharCode);
+        if (rightBorder) {
+            os << "│";
         }
-        else if (row == 1) {
-            printf("spcTop : %2d, spcBottm: %2d", offsTop, yEnd - bmp.rows);
-        }
-        else if (row == 2) {
-            printf("spcLeft: %2d, spcRight: %2d", offsLeft, xEnd - bmp.width);
-        }
-        else if (row == 3) {
-            printf("width  : %2d", bmp.width);
-        }
-        else if (row == 4) {
-            printf("height : %2d", bmp.rows);
-        }
-        os << endl;
+        os.newLine();
     }
+    topBottomLine = "┴";
+    rpt(topBottomLine, fontWidth(), "─").append(rightBorder ? "┴" : "─");
     os << topBottomLine;
+    os.newLine();
+
+    char utf8buf[MB_CUR_MAX + 1];  // max bytes needed for one multibyte char
+    mbstate_t state = mbstate_t();
+    size_t bytes = wcrtomb(utf8buf, mCharCode, &state);
+    if (bytes != (size_t)-1) {
+        utf8buf[bytes] = 0;
+    }
+    else {
+        utf8buf[0] = '?';
+        utf8buf[1] = 0;
+    }
+    char buf[128];
+    snprintf(buf, sizeof(buf)-1, " ch:'%s'", utf8buf);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " U+%04X", mCharCode);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " spcT:%d", offsTop);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " spcB:%d", yEnd - bmp.rows);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " spcL:%d", offsLeft);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " spcR:%d", xEnd - bmp.width);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " wdth:%d", bmp.width);
+    os.append(buf).newLine();
+    snprintf(buf, sizeof(buf)-1, " hght:%d", bmp.rows);
+    os.append(buf);
 }
 };
 const map<string, pair<uint32_t, uint32_t>> Font::sNamedRanges = {
@@ -385,7 +533,7 @@ int main(int argc, char* argv[])
         cout << "Font generation utility by Alexander Vassilev\n"
              << "Usage:\n"
              << "Show selected chars of specified font and vertical font size:\n"
-             << "  " << argv[0] << " show  <font-file> <font-vsize> <chars>\n"
+             << "  " << argv[0] << " view <font-file> <font-vsize> <chars>\n"
              << "Create a C++ v-scan font:\n"
              << "  " << argv[0] << " tocpp <font-path> <font-size> <ranges> <cppfont-name>\n"
              << "  <ranges> is in the form (startCode1-endCode1|named1),(startCode2-endCode2|named2);....\n"
