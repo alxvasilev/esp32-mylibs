@@ -34,15 +34,15 @@ struct Font
     const Flags flags;
     const bool isVertScan; // just for quicker access
     const uint8_t byteHeightOrWidth;
-    Font(Flags aFlags, uint8_t aWidth, uint8_t aHeight, CharCode aFirst, CharCode aLast,
+    constexpr Font(Flags aFlags, uint8_t aWidth, uint8_t aHeight, CharCode aFirst, CharCode aLast,
          const uint8_t* aData, const RangeList* aRanges, const uint8_t* aOffsets,
          uint8_t charSp, uint8_t lineSp)
     : width(aWidth), height(aHeight), firstCode(aFirst), lastCode(aLast), charSpacing(charSp), lineSpacing(lineSp),
       fontData(aData), offsets(aOffsets), ranges(aRanges), flags(aFlags), isVertScan(flags & kVertScan),
       byteHeightOrWidth(isVertScan ? ((aHeight + 7) / 8) : (aWidth + 7) / 8)
     {}
-    bool isMonoSpace() const { return offsets == nullptr; }
-    int codeToIdx(CharCode code) const {
+    constexpr bool isMonoSpace() const { return offsets == nullptr; }
+    constexpr int codeToIdx(CharCode code) const {
         if (code < firstCode) {
             return -1;
         }
@@ -61,7 +61,7 @@ struct Font
         return -1;
     }
     /* Returns the char width in code, as an uint8_t */
-    const uint8_t* getCharData(CharCode code, int& aWidth) const
+    constexpr const uint8_t* getCharData(CharCode code, int& aWidth) const
     {
         int idx = codeToIdx(code);
         if (idx < 0) {
@@ -83,7 +83,7 @@ struct Font
             return fontData + (byteHeightOrWidth * height) * idx;
         }
     }
-    int charWidth(CharCode ch=0) const {
+    constexpr int charWidth(CharCode ch=0) const {
         if (!offsets) {
             return width;
         }
@@ -94,7 +94,10 @@ struct Font
         auto ofs = (idx == 0) ? 0 : offsets[idx - 1];
         return (offsets[idx] - ofs) / byteHeightOrWidth;
     }
-    int textMonoSpcWidth(int len) const { assert(!this->offsets); return len * (width + charSpacing); }
+    constexpr int textMonoSpcWidth(int len) const {
+        assert(!this->offsets);
+        return len * (width + charSpacing);
+    }
 };
 
 #endif // FONT_HPP

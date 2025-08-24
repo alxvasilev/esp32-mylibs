@@ -43,6 +43,7 @@ static inline void checkError(FT_Error err, const char* opName)
 struct TextBox: public vector<string>
 {
     iterator currLine;
+    int width = 0;
     TextBox(int w, int h): vector(h) {
         for (auto& line: *this) {
             line.reserve(w + 16);
@@ -107,6 +108,7 @@ struct Font {
     FT_Face mFace = nullptr;
     int mHeight = 0;
     int mWidth = 0;
+    string mFontFileName;
     // bounding box coords relative to pen origin, which is (x=start-of-char=0, y=baseline=0)
     // y increases top to bottom, x increases left to right
     int mBmpLeftMin; // min offset from cursor to left of glyph: min(bitmap_left)
@@ -114,7 +116,7 @@ struct Font {
     int mBmpTopMax; // max distance from baseline to top of glyph: max(bitmap_top)
     int mBmpBottomMax; // max distance from baseline to bottom of glyph: max(bmp.rows - bitmap_top)
     uint32_t mCharCode = 0;
-    static const map<string, pair<uint32_t, uint32_t>> sNamedRanges;
+    static const map<string, vector<pair<uint32_t, uint32_t>>> sNamedRanges;
 Font(FT_Library ft): mLib(ft) {}
 void load(const char* fontPath, long fontSize)
 {
@@ -127,6 +129,8 @@ void load(const char* fontPath, long fontSize)
     mHeight = mFace->size->metrics.height >> 6;
     mWidth = mFace->size->metrics.max_advance >> 6;
     resetBoundingBox();
+    auto slash = strrchr(fontPath, '/');
+    mFontFileName.assign(slash ? slash + 1 : fontPath);
 }
 void resetBoundingBox()
 {
@@ -199,7 +203,9 @@ void parseRanges(char* str, vector<pair<uint32_t, uint32_t>>& ranges)
             if (it == sNamedRanges.end()) {
                 throw runtime_error(string("Unknown range name ") + token);
             }
-            ranges.push_back(it->second);
+            for (auto& range: it->second) {
+                ranges.push_back(range);
+            }
         }
         else {
             *delim = 0;
@@ -268,7 +274,7 @@ uint32_t cmdExportToCpp(int argc, char** argv)
     int fntWidth = fontWidth();
     int fntHeight = fontHeight();
     ofs << "/*\n"
-        << "Vertical-scan bitmap data for " << dec << fntWidth << "x" << fntHeight << " font " << fontName << "\n"
+        << "Vertical-scan bitmap data for " << dec << fntWidth << "x" << fntHeight << " font '" << mFontFileName << "'\n"
         << "Defines char code ranges ";
     ofs << hex;
     for (int i = 0; i < outRanges.size(); i++) {
@@ -310,7 +316,7 @@ uint32_t cmdExportToCpp(int argc, char** argv)
         << "_FONT_FORCE_ROM extern const Font " << fontName << "(Font::kVertScan, " << fntWidth << ", " << fntHeight << ", "
         << outRanges[0].first << ", " << outRanges[0].last << ", " << fontName << "_data, &" << fontName
         << "_extranges, nullptr, 1, 1);\n";
-    printf("Font saved to %s\n", outFileName.c_str());
+    printf("Generated font of %zu chars, with size %d x %d\nSaved to %s\n", allCodes.size(), fntWidth, fntHeight, outFileName.c_str());
     return missing;
 }
 void cmdShowChars(const char* chars)
@@ -327,8 +333,8 @@ void cmdShowChars(const char* chars)
         currGlyphRender();
     }
     vector<TextBox> boxes;
-    int boxWidth = fontWidth() + 2;
-    int boxesPerLine = consoleGetWidth() / (boxWidth);
+    int boxWidth = fontWidth() + 1;
+    int boxesPerLine = (consoleGetWidth() - 1) / boxWidth; // leave one column for right border of last box
     boxes.reserve(boxesPerLine);
     for (auto i = 0; i < boxesPerLine; i++) {
         boxes.emplace_back(boxWidth, fontHeight() + 10);
@@ -344,7 +350,7 @@ void cmdShowChars(const char* chars)
             bool isLineLast = (boxCol == boxesPerLine - 1) || !*ch;
             currGlyphPrint(box, isLineLast);
             if (isLineLast) {
-                renderTextBoxesInLine(boxes, boxCol+1, boxWidth);
+                renderTextBoxesInLine(boxes, boxCol+1);
             }
         }
         else {
@@ -400,18 +406,18 @@ int utf8strlen(const char* str)
     }
     return len;
 }
-void renderTextBoxesInLine(const vector<TextBox>& boxes, int n, int width)
+void renderTextBoxesInLine(const vector<TextBox>& boxes, int n)
 {
     auto numLines = boxes[0].size();
     std::string line;
-    line.reserve(width * boxes.size());
+    line.reserve(boxes[0].width * boxes.size() + 1);
     for (int l = 0; l < numLines; l++) {
         line.clear();
         for (int b = 0; b < n; b++) {
             auto& box = boxes[b];
             const auto& boxLine = box[l];
             line.append(boxLine);
-            int padding = width - (int)utf8strlen(boxLine.c_str());
+            int padding = box.width - (int)utf8strlen(boxLine.c_str());
             if (padding > 0) {
                 line.append(padding, ' ');
             }
@@ -455,7 +461,14 @@ void currGlyphPrint(TextBox& os, bool rightBorder)
 {
     os.clear();
     string topBottomLine = "┬";
-    rpt(topBottomLine, fontWidth(), "─").append(rightBorder ? "┬" : "─");
+    rpt(topBottomLine, fontWidth(), "─");
+    if (rightBorder) {
+        topBottomLine.append("┬");
+        os.width = fontWidth() + 2;
+    }
+    else {
+        os.width = fontWidth() + 1;
+    }
     os << topBottomLine;
     os.newLine();
     auto glyph = mFace->glyph;
@@ -488,7 +501,10 @@ void currGlyphPrint(TextBox& os, bool rightBorder)
         os.newLine();
     }
     topBottomLine = "┴";
-    rpt(topBottomLine, fontWidth(), "─").append(rightBorder ? "┴" : "─");
+    rpt(topBottomLine, fontWidth(), "─");
+    if (rightBorder) {
+        topBottomLine.append("┴");
+    }
     os << topBottomLine;
     os.newLine();
 
@@ -521,10 +537,10 @@ void currGlyphPrint(TextBox& os, bool rightBorder)
     os.append(buf);
 }
 };
-const map<string, pair<uint32_t, uint32_t>> Font::sNamedRanges = {
-    { "ascii", {0x20, 0x7e}},
-    { "latin", {0xa1, 0x17f}},
-    { "cyr", { 0x400, 0x45e}}
+const map<string, vector<pair<uint32_t, uint32_t>>> Font::sNamedRanges = {
+    { "ascii", {{0x20, 0x7e}}},
+    { "latin", {{0xa1, 0x17f}}},
+    { "cyr", {{0x400, 0x45e}}}
 };
 
 int main(int argc, char* argv[])
